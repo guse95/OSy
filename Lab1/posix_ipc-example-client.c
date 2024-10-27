@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
                 sum += numb;
                 while (*ptr++ != '\0');
             }
-            snprintf(ans, sizeof(ans), "%.10f", sum);
+            snprintf(ans, sizeof(ans), "%.10f\n", sum);
 
             int32_t written = write(file, ans, sizeof(float));
             if (written != sizeof(float)) {
@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
 
     // NOTE: Write EOF to final file
     // TODO: Check for count of actual bytes written
-    const char term = '\0';
+    const char term = '\n';
     write(file, &term, sizeof(term));
 
     close(file);
