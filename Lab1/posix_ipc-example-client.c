@@ -14,10 +14,6 @@ int main(int argc, char **argv) {
 
     pid_t pid = getpid();
 
-    // NOTE: `O_WRONLY` only enables file for writing
-    // NOTE: `O_CREAT` creates the requested file if absent
-    // NOTE: `O_TRUNC` empties the file prior to opening
-    // NOTE: `O_APPEND` subsequent writes are being appended instead of overwritten
     int32_t file = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0600);
     if (file == -1) {
         const char msg[] = "error: failed to open requested file\n";
@@ -38,7 +34,6 @@ int main(int argc, char **argv) {
             write(STDERR_FILENO, msg, sizeof(msg));
             exit(EXIT_FAILURE);
         } else if (buf[0] == '\n') {
-            // NOTE: When Enter is pressed with no input, then exit client
             break;
         }
 
@@ -92,9 +87,6 @@ int main(int argc, char **argv) {
             }
         }
     }
-
-    // NOTE: Write EOF to final file
-    // TODO: Check for count of actual bytes written
     const char term = '\n';
     write(file, &term, sizeof(term));
 
