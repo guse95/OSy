@@ -10,7 +10,6 @@ int main(int argc, char **argv) {
     char buf[4096];
     ssize_t bytes;
     char ans[4096];
-    float sum = 0;
 
     pid_t pid = getpid();
 
@@ -29,6 +28,7 @@ int main(int argc, char **argv) {
     }
 
     while ((bytes = read(STDIN_FILENO, buf, sizeof(buf)))) {
+        float sum = 0;
         if (bytes < 0) {
             const char msg[] = "error: failed to read from stdin\n";
             write(STDERR_FILENO, msg, sizeof(msg));
@@ -51,11 +51,11 @@ int main(int argc, char **argv) {
         }
 
         {
-            // NOTE: Replace newline with NULL-terminator
             buf[bytes] = '\0';
             int point_cnt = 0;
+            int numb_cnt = 1;
             for (int i = 0; i < bytes - 1; ++i) {
-                if (isdigit(buf[i]) || (buf[i] == '.' && !point_cnt) ) {
+                if (isdigit(buf[i]) || (buf[i] == '.' && !point_cnt)) {
                     if (buf[i] == '.') point_cnt++;
                     continue;
                 }
@@ -68,26 +68,29 @@ int main(int argc, char **argv) {
                 write(STDERR_FILENO, msg, sizeof(msg));
                 exit(EXIT_FAILURE);
             }
+        }
 
+        {
             char *ptr = buf;
             float numb = 0;
-            for(int i = 0; i < 3; ++i) {
-                printf("%s\n", ptr);
-                numb = atof(ptr);
-                sum += numb;
-                while (*ptr++ != '\0');
+            sum += atof(ptr);
+            for(int i = 0; i < bytes - 1; ++i) {
+                if (buf[i] == '\0' && bytes > i + 1) {
+                    numb = atof(ptr + i + 1);
+                    sum += numb;
+                }
             }
-            snprintf(ans, sizeof(ans), "%.10f\n", sum);
 
-            int32_t written = write(file, ans, sizeof(float));
-            if (written != sizeof(float)) {
+            size_t ansLen = snprintf(ans, sizeof(ans), "%.5f\n", sum);
+            int32_t written = write(file, ans, ansLen);
+            if (written != ansLen) {
                 const char msg[] = "error: failed to write to file\n";
                 write(STDERR_FILENO, msg, sizeof(msg));
                 exit(EXIT_FAILURE);
             }
         }
     }
-    const char term = '\n';
+    const char term = '\0';
     write(file, &term, sizeof(term));
 
     close(file);

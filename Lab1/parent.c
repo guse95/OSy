@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 
-static char CLIENT_PROGRAM_NAME[] = "posix_ipc-example-client";
+static char CLIENT_PROGRAM_NAME[] = "child";
 
 int main(int argc, char **argv) {
     if (argc == 1) {
@@ -18,8 +18,7 @@ int main(int argc, char **argv) {
 
     char progpath[1024];
     {
-        ssize_t len = readlink("/proc/self/exe", progpath,
-                               sizeof(progpath) - 1);
+        ssize_t len = readlink("/proc/self/exe", progpath, sizeof(progpath) - 1);
         if (len == -1) {
             const char msg[] = "error: failed to read full program path\n";
             write(STDERR_FILENO, msg, sizeof(msg));
@@ -69,7 +68,7 @@ int main(int argc, char **argv) {
                 int32_t status = execv(path, args);
 
                 if (status == -1) {
-                    const char msg[] = "error: failed to exec into new exectuable image\n";
+                    const char msg[] = "error: failed to exec into new executable image\n";
                     write(STDERR_FILENO, msg, sizeof(msg));
                     exit(EXIT_FAILURE);
                 }
