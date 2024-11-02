@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 
-static char CLIENT_PROGRAM_NAME[] = "child";
+static char CLIENT_PROGRAM_NAME[] = "client";
 
 int main(int argc, char **argv) {
     if (argc == 1) {
@@ -30,6 +30,9 @@ int main(int argc, char **argv) {
 
         progpath[len] = '\0';
     }
+//
+//    char buf[4096];
+//    ssize_t bytes;
 
     int channel[2];
     if (pipe(channel) == -1) {
@@ -50,12 +53,12 @@ int main(int argc, char **argv) {
         case 0: {
             pid_t pid = getpid();
             dup2(STDIN_FILENO, channel[STDIN_FILENO]);
+//            dup2(channel[STDIN_FILENO], STDIN_FILENO);
             close(channel[STDOUT_FILENO]);
 
             {
                 char msg[64];
-                const int32_t length = snprintf(msg, sizeof(msg),
-                                                "%d: I'm a child\n", pid);
+                const int32_t length = snprintf(msg, sizeof(msg), "%d: I'm a child\n", pid);
                 write(STDOUT_FILENO, msg, length);
             }
 
@@ -80,10 +83,13 @@ int main(int argc, char **argv) {
 
             {
                 char msg[64];
-                const int32_t length = snprintf(msg, sizeof(msg),
-                                                "%d: I'm a parent, my child has PID %d\n", pid, child);
+                const int32_t length = snprintf(msg, sizeof(msg), "%d: I'm a parent, my child has PID %d\n", pid, child);
                 write(STDOUT_FILENO, msg, length);
             }
+
+//            while (bytes = read(STDIN_FILENO, buf, sizeof(buf) - 1)) {
+//                write(channel[STDOUT_FILENO], buf, bytes);
+//            }
 
             int child_status;
             wait(&child_status);
