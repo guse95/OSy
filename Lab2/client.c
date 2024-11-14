@@ -30,18 +30,6 @@ void* BetcherSort(void* arg) {
     int *array = data->array;
     int len = data->ar_len;
 
-//    int start_ind = (len / num_threads) * thread_id;
-//    int end_ind = (thread_id == num_threads - 1) ? len : start_ind + (len / num_threads);
-
-//    for (size_t i = start_ind; i < end_ind; i++) {
-//        // (i % 2) ? 0 : 1 возвращает 1, если i четное, 0, если i не четное
-//        for (size_t j = (i % 2) ? start_ind : start_ind + 1; j + 1 < end_ind; j += 2) {
-//            if (array[j] > array[j + 1]) {
-//                swap(array + j, array + j + 1);
-//            }
-//        }
-//    }
-
     for (size_t i = 0; i < (len / num_threads + 1); i++) {
         for (size_t j = (i % 2) ? 0 : 1; j + 1 < len; j += 2) {
             if (array[j] > array[j + 1]) {
@@ -63,6 +51,7 @@ int main(int argc, char **argv) {
         write(STDERR_FILENO, msg, sizeof(msg));
         exit(EXIT_FAILURE);
     }
+    int int_in_str_size = 1;
     int ind_str = 0;
 
 
@@ -74,6 +63,7 @@ int main(int argc, char **argv) {
         write(STDERR_FILENO, msg, sizeof(msg));
         exit(EXIT_FAILURE);
     }
+    int array_size = 1;
     int ind_array = 0;
 
     pid_t pid = getpid();
@@ -86,6 +76,8 @@ int main(int argc, char **argv) {
     }
     while ((bytes = read(STDIN_FILENO, buf, sizeof(buf))) != 0) {
         if (bytes < 0) {
+            free(int_in_str);
+            free(array);
             const char msg[] = "error: failed to read from stdin\n";
             write(STDERR_FILENO, msg, sizeof(msg));
             exit(EXIT_FAILURE);
@@ -95,12 +87,14 @@ int main(int argc, char **argv) {
             int_in_str[ind_str] = buf[0];
             ind_str++;
 
-            if (ind_str >= ((int)sizeof(int_in_str) / (int)sizeof(char))) {
+            if (ind_str >= int_in_str_size) {
                 char *ptr;
-                ptr = (char*) realloc(int_in_str, 2 * (sizeof(int_in_str) + 1) * sizeof(char));
+                int_in_str_size *= 2;
+                ptr = (char*) realloc(int_in_str, int_in_str_size * sizeof(char));
                 if (ptr == NULL) {
                     free(int_in_str);
-                    const char msg[] = "error: failed to allocate memory\n";
+                    free(array);
+                    const char msg[] = "error: failed to reallocate memory\n";
                     write(STDERR_FILENO, msg, sizeof(msg));
                     exit(EXIT_FAILURE);
                 }
@@ -115,12 +109,14 @@ int main(int argc, char **argv) {
             array[ind_array] = atoi(int_in_str);
             ind_array++;
 
-            if (ind_array >= ((int)sizeof(array) / (int)sizeof(int))) {
+            if (ind_array >= array_size) {
+                array_size *= 2;
                 int *ptr;
-                ptr = (int*) realloc(array, 2 * (sizeof(array) + 1) * sizeof(int));
+                ptr = (int*) realloc(array, array_size * sizeof(int));
                 if (ptr == NULL) {
+                    free(array);
                     free(int_in_str);
-                    const char msg[] = "error: failed to allocate memory\n";
+                    const char msg[] = "error: failed to reallocate memory\n";
                     write(STDERR_FILENO, msg, sizeof(msg));
                     exit(EXIT_FAILURE);
                 }
@@ -133,26 +129,6 @@ int main(int argc, char **argv) {
         if (buf[0] == '\n' || buf[0] == EOF) {
             break;
         }
-//        {
-//            char *ptr = buf;
-//            float numb = 0;
-//            sum += atof(ptr);
-//            for(int i = 0; i < bytes - 1; ++i) {
-//                if (buf[i] == '\0' && bytes > i + 1) {
-//                    numb = atof(ptr + i + 1);
-//                    sum += numb;
-//                }
-//            }
-//
-//            size_t ansLen = snprintf(ans, sizeof(ans), "%.5f\n", sum);
-//            int32_t written = write(file, ans, ansLen);
-//
-//            if (written != ansLen) {
-//                const char msg[] = "error: failed to write to file\n";
-//                write(STDERR_FILENO, msg, sizeof(msg));
-//                exit(EXIT_FAILURE);
-//            }
-//        }
     }
     free(int_in_str);
 
@@ -192,7 +168,6 @@ int main(int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
     }
-
     free(array);
     return 0;
 }

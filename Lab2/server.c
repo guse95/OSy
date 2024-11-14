@@ -11,7 +11,7 @@ static char CLIENT_PROGRAM_NAME[] = "client";
 int main(int argc, char **argv) {
     if (argc == 1) {
         char msg[1024];
-        uint32_t len = snprintf(msg, sizeof(msg) - 1, "usage: %s filename\n", argv[0]);
+        uint32_t len = snprintf(msg, sizeof(msg) - 1, "usage: %s threadNumber\n", argv[0]);
         write(STDERR_FILENO, msg, len);
         exit(EXIT_SUCCESS);
     }
