@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -8,9 +7,7 @@
 #include <pthread.h>
 
 
-// Структура для передачи данных в поток
 typedef struct {
-    int thread_id;
     int num_threads;
     int *array;
     int ar_len;
@@ -22,10 +19,8 @@ void swap(int *a, int *b) {
     *b = tmp;
 }
 
-// Функция, выполняемая потоками
 void* BetcherSort(void* arg) {
     thread_data *data = (thread_data *)arg;
-    int thread_id = data->thread_id;
     int num_threads = data->num_threads;
     int *array = data->array;
     int len = data->ar_len;
@@ -138,7 +133,6 @@ int main(int argc, char **argv) {
     thread_data thread_data_array[num_of_threads];
 
     for (int i = 0; i < num_of_threads; i++) {
-        thread_data_array[i].thread_id = i;
         thread_data_array[i].num_threads = num_of_threads;
         thread_data_array[i].array = array;
         thread_data_array[i].ar_len = ind_array;
@@ -149,12 +143,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Ожидание завершения потоков
     for (int i = 0; i < num_of_threads; i++) {
         pthread_join(threads[i], NULL);
     }
 
-    // Вывод результата
     const char msg[] = "\nSorted array:\n";
     write(STDOUT_FILENO, msg, sizeof(msg));
     char ans[20];
@@ -168,6 +160,8 @@ int main(int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
     }
+
+    printf("You can use 'ps -T -p %d' to see the threads of this process.\n", getpid());
     free(array);
     return 0;
 }
