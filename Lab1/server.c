@@ -30,9 +30,9 @@ int main(int argc, char **argv) {
 
         progpath[len] = '\0';
     }
-//
-//    char buf[4096];
-//    ssize_t bytes;
+
+    char buf[4096];
+    ssize_t bytes;
 
     int channel[2];
     if (pipe(channel) == -1) {
@@ -52,9 +52,9 @@ int main(int argc, char **argv) {
 
         case 0: {
             pid_t pid = getpid();
-            dup2(STDIN_FILENO, channel[STDIN_FILENO]);
-//            dup2(channel[STDIN_FILENO], STDIN_FILENO);
-            close(channel[STDOUT_FILENO]);
+//            dup2(STDIN_FILENO, channel[STDIN_FILENO]);
+            dup2(channel[STDIN_FILENO], STDIN_FILENO);
+//            close(channel[STDOUT_FILENO]);
 
             {
                 char msg[64];
@@ -65,11 +65,8 @@ int main(int argc, char **argv) {
             {
                 char path[1024];
                 snprintf(path, sizeof(path) - 1, "%s/%s", progpath, CLIENT_PROGRAM_NAME);
-
                 char *const args[] = {CLIENT_PROGRAM_NAME, argv[1], NULL};
-
                 int32_t status = execv(path, args);
-
                 if (status == -1) {
                     const char msg[] = "error: failed to exec into new executable image\n";
                     write(STDERR_FILENO, msg, sizeof(msg));
@@ -87,9 +84,12 @@ int main(int argc, char **argv) {
                 write(STDOUT_FILENO, msg, length);
             }
 
-//            while (bytes = read(STDIN_FILENO, buf, sizeof(buf) - 1)) {
-//                write(channel[STDOUT_FILENO], buf, bytes);
-//            }
+            while ((bytes = read(STDIN_FILENO, buf, sizeof(buf) - 1)) > 0) {
+                if (bytes == 1 && buf[0] == '\n') {
+                    exit(EXIT_SUCCESS);
+                }
+                write(channel[STDOUT_FILENO], buf, bytes);
+            }
 
             int child_status;
             wait(&child_status);

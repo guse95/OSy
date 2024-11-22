@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
                 char path[1024];
                 snprintf(path, sizeof(path) - 1, "%s/%s", progpath, CLIENT_PROGRAM_NAME);
 
-                char *const args[] = {CLIENT_PROGRAM_NAME, argv[1], NULL};
+                char *const args[] = {CLIENT_PROGRAM_NAME, argv[1], argv[2], NULL};
 
                 int32_t status = execv(path, args);
 
