@@ -10,6 +10,7 @@
 
 typedef struct {
     int num_threads;
+    clock_t begin;
     int *array;
     int ar_len;
 } thread_data;
@@ -22,9 +23,10 @@ void swap(int *a, int *b) {
 
 void* BetcherSort(void* arg) {
     thread_data *data = (thread_data *)arg;
-    int num_threads = data->num_threads;
+    const int num_threads = data->num_threads;
     int *array = data->array;
-    int len = data->ar_len;
+    const int len = data->ar_len;
+    const clock_t begin = data->begin;
 
     for (size_t i = 0; i < (len / num_threads + 1); i++) {
         for (size_t j = (i % 2) ? 0 : 1; j + 1 < len; j += 2) {
@@ -32,6 +34,11 @@ void* BetcherSort(void* arg) {
                 swap(array + j, array + j + 1);
             }
         }
+        // if ((float)(clock() - begin)/CLOCKS_PER_SEC > 1) {
+        //     const char msg[] = "error: too long\n";
+        //     write(STDERR_FILENO, msg, sizeof(msg));
+        //     exit(EXIT_FAILURE);
+        // }
     }
 
 
@@ -62,18 +69,18 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     // int array_size = 1;
-    time_t begin, end;
-    time(&begin);
+    const clock_t begin = clock();
+    clock_t end;
+
     srand(time(NULL));
     for (int i = 0; i < ind_array; i++) {
-        array[i] = rand() % 1000;
-        time(&end);
-        if ((end - begin) > 5) {
-            const char msg[] = "error: too long\n";
-            write(STDERR_FILENO, msg, sizeof(msg));
-            exit(EXIT_FAILURE);
-        }
-
+        array[i] = rand() % 2000 - 1000;
+        end = clock();
+        // if (((float)(end - begin))/CLOCKS_PER_SEC > 1) {
+        //     const char msg[] = "error: too long\n";
+        //     write(STDERR_FILENO, msg, sizeof(msg));
+        //     exit(EXIT_FAILURE);
+        // }
     }
 
     // pid_t pid = getpid();
@@ -151,36 +158,38 @@ int main(int argc, char **argv) {
         thread_data_array[i].num_threads = num_of_threads;
         thread_data_array[i].array = array;
         thread_data_array[i].ar_len = ind_array;
+        thread_data_array[i].begin = begin;
         if (pthread_create(&threads[i], NULL, BetcherSort, (void*)&thread_data_array[i]) != 0) {
             const char msg[] = "error: failed to create thread\n";
             write(STDERR_FILENO, msg, sizeof(msg));
             exit(EXIT_FAILURE);
         }
-        time(&end);
-        if ((end - begin) > 5) {
-            const char msg[] = "error: too long\n";
-            write(STDERR_FILENO, msg, sizeof(msg));
-            exit(EXIT_FAILURE);
-        }
+        end = clock();
+
+        // if (((float)(end - begin))/CLOCKS_PER_SEC > 1) {
+        //     const char msg[] = "error: too long\n";
+        //     write(STDERR_FILENO, msg, sizeof(msg));
+        //     exit(EXIT_FAILURE);
+        // }
     }
 
     for (int i = 0; i < num_of_threads; i++) {
         pthread_join(threads[i], NULL);
     }
 
-    const char msg[] = "\nSorted array:\n";
-    write(STDOUT_FILENO, msg, sizeof(msg));
-    char ans[20];
-    for (int i = 0; i < ind_array; ++i) {
-        size_t ansLen = snprintf(ans, sizeof(ans), ((i == (ind_array - 1))? "%d\n" : "%d "), array[i]);
-        int32_t written = write(STDOUT_FILENO, ans, ansLen);
-
-        if (written != ansLen) {
-            const char msg[] = "error: failed to write to file\n";
-            write(STDERR_FILENO, msg, sizeof(msg));
-            exit(EXIT_FAILURE);
-        }
-    }
+    // const char msg[] = "\nSorted array:\n";
+    // write(STDOUT_FILENO, msg, sizeof(msg));
+    // char ans[20];
+    // for (int i = 0; i < ind_array; ++i) {
+    //     size_t ansLen = snprintf(ans, sizeof(ans), ((i == (ind_array - 1))? "%d\n" : "%d "), array[i]);
+    //     int32_t written = write(STDOUT_FILENO, ans, ansLen);
+    //
+    //     if (written != ansLen) {
+    //         const char msg[] = "error: failed to write to file\n";
+    //         write(STDERR_FILENO, msg, sizeof(msg));
+    //         exit(EXIT_FAILURE);
+    //     }
+    // }
 
     printf("You can use 'ps -T -p %d' to see the threads of this process.\n", getpid());
     free(array);
