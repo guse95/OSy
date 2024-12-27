@@ -68,6 +68,11 @@ int main(int argc, char **argv) {
     }
 
     switch (child) {
+        case -1: {
+            const char msg[] = "error: failed to spawn new process\n";
+            write(STDERR_FILENO, msg, sizeof(msg));
+            exit(EXIT_FAILURE);
+        }
         case 0: {
             pid_t pid = getpid();
             printf("%d: I'm a child\n", pid);
@@ -79,7 +84,6 @@ int main(int argc, char **argv) {
             perror("execl");
             exit(EXIT_FAILURE);
         }
-
         default: {
             pid_t pid = getpid();
             printf("%d: I'm a parent, my child has PID %d\n", pid, child);

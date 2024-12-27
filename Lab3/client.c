@@ -14,20 +14,17 @@
 #define SEM_CHILD "/child_semaphore"
 
 int main(int argc, char **argv) {
-    // Проверка количества аргументов
     if (argc != 2) {
         fprintf(stderr, "Usage: %s output_file\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    // Открытие общей памяти
     int fd = shm_open(SHM_NAME, O_RDWR, 0666);
     if (fd == -1) {
         perror("shm_open");
         return EXIT_FAILURE;
     }
 
-    // Отображение общей памяти в адресное пространство процесса
     char *ptr = (char *)mmap(NULL, BUFSIZ, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) {
         perror("mmap");
@@ -35,7 +32,6 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    // Создание семафоров
     sem_t *sem_parent = sem_open(SEM_PARENT, O_CREAT, 0666, 0);
     sem_t *sem_child = sem_open(SEM_CHILD, O_CREAT, 0666, 0);
 
@@ -80,7 +76,6 @@ int main(int argc, char **argv) {
 
         float sum = 0;
 
-        // Обработка строки чисел
         char *token = strtok(buf, " ");
         while (token != NULL) {
             char *endptr;
@@ -96,7 +91,6 @@ int main(int argc, char **argv) {
             token = strtok(NULL, " ");
         }
 
-        // Запись суммы в файл
         size_t ansLen = snprintf(ans, sizeof(ans), "%.5f\n", sum);
         int32_t written = write(file, ans, ansLen);
         if (written != ansLen) {
@@ -108,11 +102,9 @@ int main(int argc, char **argv) {
         sem_post(sem_parent);
     }
 
-    // Завершение записи в файл
     const char term = '\0';
     write(file, &term, sizeof(term));
 
-    // Освобождение ресурсов
     munmap(ptr, BUFSIZ);
     close(fd);
     sem_close(sem_parent);
