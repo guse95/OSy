@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <stdlib.h>
+#include <time.h>
+#include <stdio.h>
 
 void ptr_to_str(void* ptr, char* buf) {
     unsigned long addr = (unsigned long)ptr;
@@ -33,6 +35,12 @@ allocator_create_func allocator_create = NULL;
 allocator_destroy_func allocator_destroy = NULL;
 allocator_alloc_func allocator_alloc = NULL;
 allocator_free_func allocator_free = NULL;
+
+long get_current_time_ns() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (ts.tv_sec * 1000000000) + ts.tv_nsec;
+}
 
 Allocator* fallback_allocator_create(void *const memory, const size_t size) {
     (void)memory;
@@ -88,7 +96,7 @@ void load_allocator_library(const char* library_path) {
 }
 
 int main(int argc, char* argv[]) {
-    const size_t memory_size = 4096;
+    const size_t memory_size = 1 * 1024 * 1024 * 1024;
 
     void* memory = mmap(NULL, memory_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
     if (memory == MAP_FAILED) {
@@ -114,8 +122,11 @@ int main(int argc, char* argv[]) {
         write(1, createError, 28);
         return 1;
     }
+    long start = get_current_time_ns();
+    void* ptr1 = allocator_alloc(allocator, 64 * 1024 * 1024);
+    long stop = get_current_time_ns();
+    printf("%ld\n", (stop - start));
 
-    void* ptr1 = allocator_alloc(allocator, 64);
     if (ptr1) {
         const char* allocMsg1 = "64 bytes allocated successfully. Pointer address: ";
         write(1, allocMsg1, 50);
@@ -124,13 +135,19 @@ int main(int argc, char* argv[]) {
         write(1, ptr1Str, 18);
         const char* endMsg1 = "\n";
         write(1, endMsg1, 1);
+
+        long start2 = get_current_time_ns();
         allocator_free(allocator, ptr1);
+        printf("%ld\n", (get_current_time_ns() - start2));
     } else {
         const char* allocError1 = "Failed to allocate 64 bytes.\n";
         write(1, allocError1, 30);
     }
 
+    start = get_current_time_ns();
     void* ptr2 = allocator_alloc(allocator, 128);
+    printf("%ld\n", (get_current_time_ns() - start));
+
     if (ptr2) {
         const char* allocMsg2 = "128 bytes allocated successfully. Pointer address: ";
         write(1, allocMsg2, 51);
@@ -139,7 +156,10 @@ int main(int argc, char* argv[]) {
         write(1, ptr2Str, 18);
         const char* endMsg2 = "\n";
         write(1, endMsg2, 1);
+
+        long start2 = get_current_time_ns();
         allocator_free(allocator, ptr2);
+        printf("%ld\n", (get_current_time_ns() - start2));
     } else {
         const char* allocError2 = "Failed to allocate 128 bytes.\n";
         write(1, allocError2, 31);

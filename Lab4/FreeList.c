@@ -5,6 +5,7 @@
 typedef struct Block {
     size_t size;
     struct Block* next;
+    struct Block* prev;
 } Block;
 
 typedef struct Allocator {
@@ -23,47 +24,57 @@ Allocator* allocator_create(void *const memory, const size_t size) {
     allocator->free_list = (Block*)((char*)memory + sizeof(Allocator));
     allocator->free_list->size = size - sizeof(Allocator);
     allocator->free_list->next = NULL;
-    
+    allocator->free_list->prev = NULL;
+
     return allocator;
 }
 
 void* allocator_alloc(Allocator *const allocator, const size_t size) {
     if (!allocator || size == 0) return NULL;
-
-    Block** current = &allocator->free_list;
-    while (*current) {
-        if ((*current)->size >= size) {
-            if ((*current)->size > size + sizeof(Block)) {
-                Block* remaining = (struct Block*)((char*)(*current) + sizeof(struct Block) + size);
-                remaining->size = (*current)->size - size - sizeof(Block);
-                remaining->next = (*current)->next;
-
-                (*current)->size = size;
-                *current = remaining;
-            } else {
-                *current = (*current)->next;
+    
+    Block* best_prior = NULL;
+    Block* current = allocator->free_list;
+    while (current != NULL) {
+        if (current->size >= size + sizeof(Block)) {
+            if (best_prior == NULL || current->size < best_prior->size) {
+                best_prior = current;
             }
-            return (void*)((char*)(*current) + sizeof(struct Block));
         }
-        current = &(*current)->next;
+        current = current->next;
     }
+    
+    if (best_prior != NULL) {
+        Block* remaining = (Block*)((char*)best_prior + sizeof(Block) + size);
+        remaining->size = best_prior->size - size - sizeof(Block);
+        remaining->next = best_prior->next;
+        remaining->prev = best_prior;
+        if (remaining->next != NULL) {
+            remaining->next->prev = remaining;
+        }
+
+        if (best_prior->prev != NULL) {
+            best_prior->prev->next = remaining;
+        } else {
+            allocator->free_list = remaining;
+        }
+        
+        return (void*)((char*)best_prior + sizeof(Block));
+    }
+
     return NULL;
 }
+
+
 
 void allocator_free(Allocator *const allocator, void *const memory) {
     if (!allocator || !memory) return;
 
-    Block* block = (struct Block*)((char*)memory - sizeof(struct Block));
+    Block* block = (Block*)((char*)memory - sizeof(Block));
     block->next = allocator->free_list;
+    block->prev = NULL;
     allocator->free_list = block;
 }
 
 void allocator_destroy(Allocator* allocator) {
-    if (!allocator) {
-        const char* msg = "FreeList Allocator destroy: NULL pointer\n";
-        write(1, msg, 39);
-        return;
-    }
-    const char* msg = "FreeList Allocator destroyed successfully\n";
-    write(1, msg, 42);
+    allocator->free_list = NULL;
 }

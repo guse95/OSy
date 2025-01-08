@@ -1,12 +1,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "McKarels.h"
 
-#define MAX_CLASSES 10
+#define MAX_CLASSES 16
 #define PAGE_SIZE 4096
 
 typedef struct Block {
+    size_t size;
     struct Block* next;
 } Block;
 
@@ -43,12 +45,6 @@ Allocator* allocator_create(void* const memory, const size_t size) {
     return allocator;
 }
 
-void allocator_destroy(Allocator* const allocator) {
-    for (size_t i = 0; i < MAX_CLASSES; i++) {
-        allocator->free_list[i] = NULL;
-    }
-}
-
 void* allocator_alloc(Allocator* const allocator, const size_t size) {
     size_t class_index = find_class(size, allocator->class_sizes, MAX_CLASSES);
     if (class_index >= MAX_CLASSES) return NULL;
@@ -63,6 +59,8 @@ void* allocator_alloc(Allocator* const allocator, const size_t size) {
     if (allocator->memory_size < block_size) return NULL;
 
     void* memory = allocator->memory_start;
+    Block* bl = (Block*)((char*)memory - sizeof(Block));
+    bl->size = block_size;
     allocator->memory_start = (char*)allocator->memory_start + block_size;
     allocator->memory_size -= block_size;
     return memory;
@@ -76,16 +74,22 @@ void allocator_free(Allocator* const allocator, void* const memory) {
 
     size_t class_ind = 0;
     size_t block_size = 0;
+    Block* block = (Block*)memory;
     for (; class_ind < MAX_CLASSES; class_ind++) {
         block_size = allocator->class_sizes[class_ind];
-        if ((uintptr_t)memory <= block_size) {
+        if (block->size <= block_size) {
             break;
         }
     }
 
     if (class_ind >= MAX_CLASSES) return;
 
-    Block* block = (Block*)memory;
     block->next = allocator->free_list[class_ind];
     allocator->free_list[class_ind] = block;
+}
+
+void allocator_destroy(Allocator* const allocator) {
+    for (size_t i = 0; i < MAX_CLASSES; i++) {
+        allocator->free_list[i] = NULL;
+    }
 }
