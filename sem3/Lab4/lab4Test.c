@@ -123,11 +123,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     long start = get_current_time_ns();
-    void* ptr1 = allocator_alloc(allocator, 64 * 1024 * 1024);
+    void* ptr1[1000];
+    for (int i = 0; i < 1000; ++i) {
+        ptr1[i] = allocator_alloc(allocator, 64 * 1024);
+        if (!ptr1[i]) {
+            const char* allocError1 = "Failed to allocate 64 bytes.\n";
+            write(1, allocError1, 30);
+        }
+    }
     long stop = get_current_time_ns();
     printf("%ld\n", (stop - start));
 
-    if (ptr1) {
+    {
         const char* allocMsg1 = "64 bytes allocated successfully. Pointer address: ";
         write(1, allocMsg1, 50);
         char ptr1Str[18];
@@ -137,33 +144,12 @@ int main(int argc, char* argv[]) {
         write(1, endMsg1, 1);
 
         long start2 = get_current_time_ns();
-        allocator_free(allocator, ptr1);
+        for (int i = 0; i < 1000; ++i) {
+            allocator_free(allocator, ptr1[i]);
+        }
         printf("%ld\n", (get_current_time_ns() - start2));
-    } else {
-        const char* allocError1 = "Failed to allocate 64 bytes.\n";
-        write(1, allocError1, 30);
     }
 
-    start = get_current_time_ns();
-    void* ptr2 = allocator_alloc(allocator, 128);
-    printf("%ld\n", (get_current_time_ns() - start));
-
-    if (ptr2) {
-        const char* allocMsg2 = "128 bytes allocated successfully. Pointer address: ";
-        write(1, allocMsg2, 51);
-        char ptr2Str[18];
-        ptr_to_str(ptr2, ptr2Str);
-        write(1, ptr2Str, 18);
-        const char* endMsg2 = "\n";
-        write(1, endMsg2, 1);
-
-        long start2 = get_current_time_ns();
-        allocator_free(allocator, ptr2);
-        printf("%ld\n", (get_current_time_ns() - start2));
-    } else {
-        const char* allocError2 = "Failed to allocate 128 bytes.\n";
-        write(1, allocError2, 31);
-    }
-
+   
     allocator_destroy(allocator);
 }

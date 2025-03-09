@@ -3,7 +3,9 @@ project(OSy)
 
 set(CMAKE_CXX_STANDARD 23)
 
-add_subdirectory(Lab1)
-add_subdirectory(Lab2)
-add_subdirectory(Lab3)
-add_subdirectory(Lab4)
+add_subdirectory(sem3/Lab1)
+add_subdirectory(sem3/Lab2)
+add_subdirectory(sem3/Lab3)
+add_subdirectory(sem3/Lab4)
+add_subdirectory(sem4)
+add_executable(test test.c)
