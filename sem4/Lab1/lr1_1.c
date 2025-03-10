@@ -13,6 +13,7 @@ enum {
     ERROR_WRONG_PASSWORD,
     ERROR_WRONG_PASSWORD_FORMAT,
     MEMORY_ALLOCATION_ERROR,
+    ERROR_READ
 };
 
 void HandlingError(const int code) {
@@ -33,6 +34,8 @@ void HandlingError(const int code) {
             printf("Pin-code is incorrect.\n"); break;
         case MEMORY_ALLOCATION_ERROR:
             printf("Allocation failure.\n"); break;
+        case ERROR_READ:
+            printf("Reading failure.\n"); break;
         default:
             printf("Unknown error.\n"); break;
     }
@@ -114,4 +117,16 @@ int main() {
     // char test[] = "123";
     // HandlingError(LoginValid(test));
     // Валидацию в мейне потом регистрация и вход
+    printf("Yo\nYou have 2 ways:\n1 - Sign in\n2 - Create an account");
+    char* code = NULL;
+    size_t len;
+
+    if (getline(&code, &len, stdin) == -1) {
+        HandlingError(ERROR_READ);
+        return ERROR_READ;
+    }
+
+    if (len != 2 || (code[0] != '1' && code[0] != '2')) {
+        printf("Unavailable code. Try again:\n");
+    }
 }
