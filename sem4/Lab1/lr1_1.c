@@ -16,6 +16,14 @@ enum {
     ERROR_READ
 };
 
+enum {
+    TIME,
+    DATE,
+    HOWMUCH,
+    LOGOUT,
+    SANCTIONS
+};
+
 void HandlingError(const int code) {
     switch (code) {
         case SUCCESS:
@@ -113,20 +121,132 @@ int SignIn(const char* login, const int pin, struct Data* base) {
     return ERROR_WRONG_LOGIN;
 }
 
-int main() {
-    // char test[] = "123";
-    // HandlingError(LoginValid(test));
-    // Валидацию в мейне потом регистрация и вход
-    printf("Yo\nYou have 2 ways:\n1 - Sign in\n2 - Create an account");
-    char* code = NULL;
-    size_t len;
+int CommandValid(const char* command) {
+    if (strcmp(command, "Time") == 0) {return TIME;}
+    if (strcmp(command, "Date") == 0) {return DATE;}
+    if (strcmp(command, "Howmuch") == 0) {return HOWMUCH;}
+    if (strcmp(command, "Logout") == 0) {return LOGOUT;}
+    if (strcmp(command, "Sanctions") == 0) {return SANCTIONS;}
+    return -1;
+}
 
-    if (getline(&code, &len, stdin) == -1) {
+void Time() {
+    time_t t;
+    time(&t);
+    const struct tm *tm = localtime(&t);
+
+    char buf[80];
+    strftime(buf, sizeof(buf), "%H:%M:%S", tm);
+    printf("%s\n", buf);
+}
+
+void Date() {
+    time_t t;
+    time(&t);
+    const struct tm *tm = localtime(&t);
+
+    char buf[80];
+    strftime(buf, sizeof(buf), "%d:%m:%Y", tm);
+    printf("%s\n", buf);
+}
+
+int main() {
+    printf("Yo\nYou have 3 ways:\n1 - Sign in\n2 - Create an account\n3 - Quit\n");
+    printf("Enter your choice: ");
+    char code[2];
+    // size_t len;
+
+    struct Data* base = (struct Data*)malloc(sizeof(struct Data));
+    base->capacity = 2;
+    base->size = 0;
+    base->users = (struct User*)malloc(sizeof(struct User) * base->capacity);
+    int in_account = 0;
+
+    while (1) {
+        if (scanf("%s", code) != 1) {
+            HandlingError(ERROR_READ);
+            return ERROR_READ;
+        }
+        if (strlen(code) > 1 || (code[0] != '1' && code[0] != '2' && code[0] != '3')) {
+            printf("Unavailable code. Try again:\n");
+            continue;
+        }
+        break;
+    }
+
+    if (code[0] == '3') {
+        return SUCCESS;
+    }
+    printf("Enter login: ");
+    char login[10];
+    if (scanf("%s", login) != 1) {
         HandlingError(ERROR_READ);
         return ERROR_READ;
     }
+    int err;
+    if ((err = LoginValid(login))) {
+        HandlingError(err);
+        return err;
+    }
+    printf("Enter pincode: ");
 
-    if (len != 2 || (code[0] != '1' && code[0] != '2')) {
-        printf("Unavailable code. Try again:\n");
+    char pin[10];
+
+    if (scanf("%s", pin) != 1) {
+        HandlingError(ERROR_READ);
+        return ERROR_READ;
+    }
+    if ((err = PinValid(pin))) {
+        HandlingError(err);
+        return err;
+    }
+    const int pincode = atoi(pin);
+
+    switch (code[0]) {
+        case '1': {
+            if ((err = SignIn(login, pincode, base))) {
+                HandlingError(err);
+            } else {
+                in_account = 1;
+            }
+            break;
+        }
+        case '2': {
+            if ((err = CreateAcc(login, pincode, base))) {
+                HandlingError(err);
+            } else {
+                in_account = 1;
+            }
+            break;
+        }
+        default: {
+            printf("Something wrong.\n");
+            break;
+        }
+    }
+
+    if (in_account) {
+        printf("Available commands: Time, Date, Howmuch, Logout, Sanctions\nEnter command: ");
+        char command[10];
+        if (scanf("%s", command) != 1) {
+            HandlingError(ERROR_READ);
+            return ERROR_READ;
+        }
+        const int com = CommandValid(command);
+        switch (com) {
+            case TIME: {
+                Time();
+                break;
+            }
+            case DATE: {
+                Date();
+                break;
+            }
+            case HOWMUCH: {}
+            case LOGOUT: {}
+            case SANCTIONS: {}
+            default:
+                printf("Something wrong.\n");
+        }
     }
 }
