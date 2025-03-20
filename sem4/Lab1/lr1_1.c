@@ -80,9 +80,14 @@ void HandlingError(const int code) {
     }
 }
 
+struct string {
+    char *str;
+    size_t len;
+};
+
 struct User {
-    char* login;
-    int pin;
+    struct string login;
+    struct string pin;
     int sanctions;
 };
 
@@ -169,7 +174,7 @@ int PinValid(const char* word) {
 
 int CreateAcc(const char* login, const int pin, struct Data* base, int fd) {
     for (int i = 0; i < base->size; i++) {
-        if (strcmp(base->users[i].login, login) == 0) {
+        if (strcmp(base->users[i].login.str, login) == 0) {
             return ERROR_USER_EXISTS;
         }
     }
@@ -183,10 +188,11 @@ int CreateAcc(const char* login, const int pin, struct Data* base, int fd) {
         base->users = ptr;
     }
 
-    base->users[base->size - 1].login = strdup(login);
-    if (base->users[base->size - 1].login == NULL) {
+    base->users[base->size - 1].login.str = strdup(login);
+    if (base->users[base->size - 1].login.str == NULL) {
         return MEMORY_ALLOCATION_ERROR;
     }
+    base->users[base->size - 1].login.len = strlen(login);
     base->users[base->size - 1].pin = pin;
     base->users[base->size - 1].sanctions = -1;
     return SUCCESS;
@@ -194,7 +200,7 @@ int CreateAcc(const char* login, const int pin, struct Data* base, int fd) {
 
 int SignIn(const char* login, const int pin, struct Data* base) {
     for (int i = 0; i < base->size; i++) {
-        if (strcmp(base->users[i].login, login) == 0) {
+        if (strcmp(base->users[i].login.str, login) == 0) {
             if (base->users[i].pin == pin) {
                 return SUCCESS;
             }
@@ -373,11 +379,18 @@ int InitDataFromFile(struct Data* base, const char* filename) {
 
     for (int i = 0; i < base->size; ++i) {
         struct User user;
-        fread(&user.login, sizeof(char*), 1, file);
+        fread(&user.login.len, sizeof(int), 1, file);
+        // user.login.str = (char*)malloc(user.login.len + 1);
+        // if (user.login.str == NULL) {
+        //     fclose(file);
+        //     return MEMORY_ALLOCATION_ERROR;
+        // }
+        fread(&user.login.str, sizeof(char) * user.login.len, 1, file);
         fread(&user.pin, sizeof(int), 1, file);
         fread(&user.sanctions, sizeof(int), 1, file);
 
-        base->users[i].login = strdup(user.login);
+        base->users[i].login.str = strdup(user.login.str);
+        base->users[i].login.len = user.login.len;
         base->users[i].pin = user.pin;
         base->users[i].sanctions = user.sanctions;
     }
@@ -396,7 +409,8 @@ int SaveDataToFile(const struct Data* base, const char* filename) {
     fwrite(&base->capacity, sizeof(int), 1, file);
 
     for (int i = 0; i < base->size; ++i) {
-        fwrite(&(base->users[i].login), sizeof(char*), 1, file);
+        fwrite(&(base->users[i].login.len), sizeof(int), 1, file);
+        fwrite(&(base->users[i].login.str), sizeof(char) * base->users[i].login.len, 1, file);
         fwrite(&(base->users[i].pin), sizeof(int), 1, file);
         fwrite(&(base->users[i].sanctions), sizeof(int), 1, file);
     }
@@ -413,80 +427,17 @@ void FreeUsers(struct Data* base) {
 }
 
 int main() {
-
-    // const int fd = open("data.txt", O_RDWR | O_CREAT);
-    //
-    // if (fd == -1) {
-    //     HandlingError(FILE_OPEN_ERROR);
-    //     return FILE_OPEN_ERROR;
-    // }
-
     int in_account = 0;
 
-    int fd;
-    size_t file_size;
-    struct Data* base;
-    void* file_data;
-
-    if (access("data.txt", F_OK) == 0) {
-        fd = open("data.txt", O_RDWR);
-        if (fd == -1) {
-            HandlingError(FILE_OPEN_ERROR);
-            return FILE_OPEN_ERROR;
-        }
-
-        struct stat sb;
-        if (fstat(fd, &sb) == -1) {
-            HandlingError(STAT_ERROR);
-            close(fd);
-            return STAT_ERROR;
-        }
-        file_size = sb.st_size;
-
-         file_data = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-        if (file_data == NULL) {
-            HandlingError(MEMORY_MAPPING_ERROR);
-            return MEMORY_MAPPING_ERROR;
-        }
-        base = (struct Data*)file_data;
-    }
-    else {
-        fd = open("data.txt", O_CREAT);
-
-        if (fd == -1) {
-            HandlingError(FILE_OPEN_ERROR);
-            return FILE_OPEN_ERROR;
-        }
-
-        file_size = sizeof(struct Data) + sizeof(struct User);
-        if (ftruncate(fd, file_size) == -1) {
-            HandlingError(FTRUNCATE_ERROR);
-            close(fd);
-            return FTRUNCATE_ERROR;
-        }
-        file_data = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-        if (file_data == NULL) {
-            HandlingError(MEMORY_MAPPING_ERROR);
-            return MEMORY_MAPPING_ERROR;
-        }
-        base = (struct Data*)file_data;
-        base->capacity = 1;
-        base->size = 0;
-        base->users = (struct User*)malloc(sizeof(struct User) * base->capacity);
+    struct Data* base = (struct Data*)malloc(sizeof(struct Data));
+    if (base == NULL) {
+        HandlingError(MEMORY_ALLOCATION_ERROR);
+        return MEMORY_ALLOCATION_ERROR;
     }
 
-
-    // struct Data* base = (struct Data*)malloc(sizeof(struct Data));
-    // if (base == NULL) {
-    //     HandlingError(MEMORY_ALLOCATION_ERROR);
-    //     return MEMORY_ALLOCATION_ERROR;
-    // }
-    // base->capacity = 2;
-    // base->size = 0;
-    // base->users = (struct User*)malloc(sizeof(struct User) * base->capacity);
-    // int in_account = 0;
+    base->capacity = 2;
+    base->size = 0;
+    base->users = (struct User*)malloc(sizeof(struct User) * base->capacity);
 
     while (1) {
         char code[2];
