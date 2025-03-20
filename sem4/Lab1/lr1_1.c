@@ -3,10 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 // #include <crypt.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <time.h>
 
 enum {
@@ -87,7 +83,7 @@ struct string {
 
 struct User {
     struct string login;
-    struct string pin;
+    int pin; // struct string
     int sanctions;
 };
 
@@ -172,7 +168,7 @@ int PinValid(const char* word) {
 //     return 0;
 // }
 
-int CreateAcc(const char* login, const int pin, struct Data* base, int fd) {
+int CreateAcc(const char* login, const int pin, struct Data* base) {
     for (int i = 0; i < base->size; i++) {
         if (strcmp(base->users[i].login.str, login) == 0) {
             return ERROR_USER_EXISTS;
@@ -198,7 +194,10 @@ int CreateAcc(const char* login, const int pin, struct Data* base, int fd) {
     return SUCCESS;
 }
 
-int SignIn(const char* login, const int pin, struct Data* base) {
+int SignIn(const char* login, const int pin, const struct Data* base) {
+    if (base->size == 0 || base->users == NULL) {
+        return ERROR_WRONG_LOGIN;
+    }
     for (int i = 0; i < base->size; i++) {
         if (strcmp(base->users[i].login.str, login) == 0) {
             if (base->users[i].pin == pin) {
@@ -407,7 +406,9 @@ int SaveDataToFile(const struct Data* base, const char* filename) {
 
     fwrite(&base->size, sizeof(int), 1, file);
     fwrite(&base->capacity, sizeof(int), 1, file);
-
+    if (base->users == NULL) {
+        return SUCCESS;
+    }
     for (int i = 0; i < base->size; ++i) {
         fwrite(&(base->users[i].login.len), sizeof(int), 1, file);
         fwrite(&(base->users[i].login.str), sizeof(char) * base->users[i].login.len, 1, file);
@@ -420,10 +421,16 @@ int SaveDataToFile(const struct Data* base, const char* filename) {
 }
 
 void FreeUsers(struct Data* base) {
+    if (base->users == NULL) {
+        free(base->users);
+        free(base);
+        return;
+    }
     for (int i = 0; i < base->size; ++i) {
-        free(base->users[i].login);
+        free(base->users[i].login.str);
     }
     free(base->users);
+    free(base);
 }
 
 int main() {
@@ -446,6 +453,8 @@ int main() {
         while (1) {
             if (scanf("%s", code) != 1) {
                 HandlingError(ERROR_READ);
+                SaveDataToFile(base, "data.txt");
+                FreeUsers(base);
                 return ERROR_READ;
             }
             if (strlen(code) > 1 || (code[0] != '1' && code[0] != '2' && code[0] != '3')) {
@@ -455,6 +464,8 @@ int main() {
             break;
         }
         if (code[0] == '3') {
+            SaveDataToFile(base, "data.txt");
+            FreeUsers(base);
             return SUCCESS;
         }
 
@@ -462,23 +473,27 @@ int main() {
         char login[10];
         if (scanf("%s", login) != 1) {
             HandlingError(ERROR_READ);
+            SaveDataToFile(base, "data.txt");
+            FreeUsers(base);
             return ERROR_READ;
         }
         int err;
         if ((err = LoginValid(login))) {
             HandlingError(err);
-            return err;
+            break;
         }
 
         printf("Enter pincode:");
         char pin[10];
         if (scanf("%s", pin) != 1) {
             HandlingError(ERROR_READ);
+            SaveDataToFile(base, "data.txt");
+            FreeUsers(base);
             return ERROR_READ;
         }
         if ((err = PinValid(pin))) {
             HandlingError(err);
-            return err;
+            break;
         }
         const int pincode = atoi(pin);
 
@@ -490,7 +505,7 @@ int main() {
             in_account = 1;
         }
         else if (code[0] == '2') {
-            if ((err = CreateAcc(login, pincode, base, fd))) {
+            if ((err = CreateAcc(login, pincode, base))) {
                 HandlingError(err);
                 break;
             }
@@ -509,6 +524,8 @@ int main() {
             char command[10];
             if (scanf("%s", command) != 1) {
                 HandlingError(ERROR_READ);
+                SaveDataToFile(base, "data.txt");
+                FreeUsers(base);
                 return ERROR_READ;
             }
             const int com = CommandValid(command);
@@ -540,6 +557,4 @@ int main() {
             }
         }
     }
-    close(fd);
-    munmap(file_data, file_size);
 }
