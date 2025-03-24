@@ -4,6 +4,7 @@
 #include <string.h>
 // #include <crypt.h>
 #include <time.h>
+#include <unistd.h>
 
 enum {
     SUCCESS,
@@ -17,6 +18,7 @@ enum {
     TIME_UNDER_1900,
     TIME_IS_FUTURE,
     ERROR_SANCTIONS_FORMAT,
+    ERROR_NO_LICENSE,
     MEMORY_ALLOCATION_ERROR,
     MEMORY_MAPPING_ERROR,
     ERROR_READ,
@@ -59,6 +61,8 @@ void HandlingError(const int code) {
         case ERROR_SANCTIONS_FORMAT:
             printf("Format should be: Sanctions username "
                    "<number>(from 1 to 5)"); break;
+        case ERROR_NO_LICENSE:
+            printf("You cant change sanctions for yourself.\n"); break;
         case MEMORY_ALLOCATION_ERROR:
             printf("Allocation failure.\n"); break;
         case MEMORY_MAPPING_ERROR:
@@ -168,7 +172,7 @@ int PinValid(const char* word) {
 //     return 0;
 // }
 
-int CreateAcc(const char* login, const int pin, struct Data* base) {
+int CreateAcc(const char* login, const int pin, struct Data* base, int* Id) {
     for (int i = 0; i < base->size; i++) {
         if (strcmp(base->users[i].login.str, login) == 0) {
             return ERROR_USER_EXISTS;
@@ -177,7 +181,7 @@ int CreateAcc(const char* login, const int pin, struct Data* base) {
     base->size++;
     if (base->size > base->capacity) {
         base->capacity *= 2;
-        struct User* ptr = realloc(base->users, base->capacity * sizeof(struct User));
+        struct User* ptr = (struct User*)realloc(base->users, base->capacity * sizeof(struct User));
         if (ptr == NULL) {
             return MEMORY_ALLOCATION_ERROR;
         }
@@ -191,16 +195,18 @@ int CreateAcc(const char* login, const int pin, struct Data* base) {
     base->users[base->size - 1].login.len = strlen(login);
     base->users[base->size - 1].pin = pin;
     base->users[base->size - 1].sanctions = -1;
+    *Id = base->size - 1;
     return SUCCESS;
 }
 
-int SignIn(const char* login, const int pin, const struct Data* base) {
+int SignIn(const char* login, const int pin, const struct Data* base, int* Id) {
     if (base->size == 0 || base->users == NULL) {
         return ERROR_WRONG_LOGIN;
     }
     for (int i = 0; i < base->size; i++) {
         if (strcmp(base->users[i].login.str, login) == 0) {
             if (base->users[i].pin == pin) {
+                *Id = i;
                 return SUCCESS;
             }
             return ERROR_WRONG_PASSWORD;
@@ -209,12 +215,13 @@ int SignIn(const char* login, const int pin, const struct Data* base) {
     return ERROR_WRONG_LOGIN;
 }
 
-int CommandValid(const char* command) {
-    if (strcmp(command, "Time") == 0) {return TIME;}
-    if (strcmp(command, "Date") == 0) {return DATE;}
-    if (strcmp(command, "Howmuch") == 0) {return HOWMUCH;}
-    if (strcmp(command, "Logout") == 0) {return LOGOUT;}
-    if (strcmp(command, "Sanctions") == 0) {return SANCTIONS;}
+int CommandValid(char* command) {
+    const char* cmd = strtok(command, " ");
+    if (strcmp(cmd, "Time") == 0) {return TIME;}
+    if (strcmp(cmd, "Date") == 0) {return DATE;}
+    if (strcmp(cmd, "Howmuch") == 0) {return HOWMUCH;}
+    if (strcmp(cmd, "Logout") == 0) {return LOGOUT;}
+    if (strcmp(cmd, "Sanctions") == 0) {return SANCTIONS;}
     return -1;
 }
 
@@ -350,51 +357,74 @@ int Howmuch(char* input) {
     return SUCCESS;
 }
 
-int Sanctions(char* command) {
-    char* lexem = strtok(command, " ");
-    lexem = strtok(NULL, " ");
-    if (lexem == NULL) {
+int Sanctions(char* command, const char* login, const struct Data* base) {
+    const char* username = strtok(command, " ");
+    username = strtok(NULL, " ");
+    if (username == NULL || LoginValid(username)) {
         return ERROR_SANCTIONS_FORMAT;
     }
-    //записать санкции в файл
-    return SUCCESS;
+    if (strcmp(username, login) == 0) {
+        return ERROR_NO_LICENSE;
+    }
+    const char* sanction = strtok(NULL, " ");
+    if (sanction == NULL || (strlen(sanction) != 1 || ('1' <= sanction[0] && sanction[0] <= '5'))) {
+        return ERROR_SANCTIONS_FORMAT;
+    }
+    if (base->size == 0 || base->users == NULL) {
+        return ERROR_WRONG_LOGIN;
+    }
+    for (int i = 0; i < base->size; i++) {
+        if (strcmp(base->users[i].login.str, username) == 0) {
+            base->users[i].sanctions = sanction[0] - '0';
+            return SUCCESS;
+        }
+    }
+    return ERROR_WRONG_LOGIN;
 }
 
-
 int InitDataFromFile(struct Data* base, const char* filename) {
-    FILE* file = fopen(filename, "rb");
-    if (!file) {
-        return FILE_OPEN_ERROR;
-    }
+    if (access(filename, F_OK) == 0) {
+        FILE* file = fopen(filename, "rb");
+        if (!file) {
+            return FILE_OPEN_ERROR;
+        }
 
-    fread(&base->size, sizeof(int), 1, file);
-    fread(&base->capacity, sizeof(int), 1, file);
+        fread(&base->size, sizeof(int), 1, file);
+        fread(&base->capacity, sizeof(int), 1, file);
 
-    base->users = (struct User*)malloc(base->capacity * sizeof(struct User));
-    if (!base->users) {
+        base->users = (struct User*)malloc(base->capacity * sizeof(struct User));
+        if (base->users == NULL) {
+            fclose(file);
+            return MEMORY_ALLOCATION_ERROR;
+        }
+
+        for (int i = 0; i < base->size; ++i) {
+            struct User user;
+            fread(&user.login.len, sizeof(int), 1, file);
+            // user.login.str = (char*)malloc(user.login.len + 1);
+            // if (user.login.str == NULL) {
+            //     fclose(file);
+            //     return MEMORY_ALLOCATION_ERROR;
+            // }
+            fread(&user.login.str, sizeof(char) * user.login.len, 1, file);
+            fread(&user.pin, sizeof(int), 1, file);
+            fread(&user.sanctions, sizeof(int), 1, file);
+
+            base->users[i].login.str = strdup(user.login.str);
+            base->users[i].login.len = user.login.len;
+            base->users[i].pin = user.pin;
+            base->users[i].sanctions = user.sanctions;
+        }
+
         fclose(file);
-        return MEMORY_ALLOCATION_ERROR;
+    } else {
+        base->capacity = 2;
+        base->size = 0;
+        base->users = (struct User*)malloc(sizeof(struct User) * base->capacity);
+        if (base->users == NULL) {
+            return MEMORY_ALLOCATION_ERROR;
+        }
     }
-
-    for (int i = 0; i < base->size; ++i) {
-        struct User user;
-        fread(&user.login.len, sizeof(int), 1, file);
-        // user.login.str = (char*)malloc(user.login.len + 1);
-        // if (user.login.str == NULL) {
-        //     fclose(file);
-        //     return MEMORY_ALLOCATION_ERROR;
-        // }
-        fread(&user.login.str, sizeof(char) * user.login.len, 1, file);
-        fread(&user.pin, sizeof(int), 1, file);
-        fread(&user.sanctions, sizeof(int), 1, file);
-
-        base->users[i].login.str = strdup(user.login.str);
-        base->users[i].login.len = user.login.len;
-        base->users[i].pin = user.pin;
-        base->users[i].sanctions = user.sanctions;
-    }
-
-    fclose(file);
     return SUCCESS;
 }
 
@@ -442,9 +472,7 @@ int main() {
         return MEMORY_ALLOCATION_ERROR;
     }
 
-    base->capacity = 2;
-    base->size = 0;
-    base->users = (struct User*)malloc(sizeof(struct User) * base->capacity);
+    InitDataFromFile(base, "data.txt");
 
     while (1) {
         char code[2];
@@ -477,6 +505,7 @@ int main() {
             FreeUsers(base);
             return ERROR_READ;
         }
+        int userId = -1;
         int err;
         if ((err = LoginValid(login))) {
             HandlingError(err);
@@ -498,14 +527,14 @@ int main() {
         const int pincode = atoi(pin);
 
         if (code[0] == '1') {
-            if ((err = SignIn(login, pincode, base))) {
+            if ((err = SignIn(login, pincode, base, &userId))) {
                 HandlingError(err);
                 break;
             }
             in_account = 1;
         }
         else if (code[0] == '2') {
-            if ((err = CreateAcc(login, pincode, base))) {
+            if ((err = CreateAcc(login, pincode, base, &userId))) {
                 HandlingError(err);
                 break;
             }
@@ -516,6 +545,7 @@ int main() {
             printf("Something wrong.\n");
             break;
         }
+        int sanc = base->users[userId].sanctions;
 
         while (in_account) {
             printf("Available commands:\nTime\nDate\nHowmuch hh:mm:ss "
@@ -528,7 +558,21 @@ int main() {
                 FreeUsers(base);
                 return ERROR_READ;
             }
+
             const int com = CommandValid(command);
+            if (com < 0 ) {
+                continue;
+            }
+            if (sanc > 0) {
+                --sanc;
+            } else if (sanc == 0) {
+                --sanc;
+                printf("You can no longer enter commands in the current session"
+                       " due to the restrictions imposed.\n");
+                in_account = 0;
+                break;
+            }
+
             switch (com) {
                 case TIME: {
                     Time();
@@ -539,7 +583,7 @@ int main() {
                     break;
                 }
                 case HOWMUCH: {
-                    Howmuch(command);
+                    HandlingError(Howmuch(command));
                     break;
                 }
                 case LOGOUT: {
@@ -547,7 +591,7 @@ int main() {
                     break;
                 }
                 case SANCTIONS: {
-                    Sanctions(command);
+                    HandlingError(Sanctions(command, login, base));
                     break;
                 }
                 default: {
