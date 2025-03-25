@@ -20,11 +20,10 @@ enum {
     ERROR_SANCTIONS_FORMAT,
     ERROR_NO_LICENSE,
     MEMORY_ALLOCATION_ERROR,
-    MEMORY_MAPPING_ERROR,
+    ERROR_FILE_READING,
+    ERROR_FILE_WRITING,
     ERROR_READ,
     FILE_OPEN_ERROR,
-    STAT_ERROR,
-    FTRUNCATE_ERROR,
 };
 
 enum {
@@ -53,7 +52,7 @@ void HandlingError(const int code) {
             printf("Pin-code is incorrect.\n"); break;
         case ERROR_HOWMUCH_FORMAT:
             printf("Format should be: Howmuch hh:mm:ss "
-                   "DD:MM:YYYY <flag>(possible: -s, -m, -h, -y)"); break;
+                   "DD:MM:YYYY <flag>(possible: -s, -m, -h, -y)\n"); break;
         case TIME_UNDER_1900:
             printf("Time under 1900 seconds is incorrect.\n"); break;
         case TIME_IS_FUTURE:
@@ -65,16 +64,14 @@ void HandlingError(const int code) {
             printf("You cant change sanctions for yourself.\n"); break;
         case MEMORY_ALLOCATION_ERROR:
             printf("Allocation failure.\n"); break;
-        case MEMORY_MAPPING_ERROR:
-            printf("Mapping failure.\n"); break;
+        case ERROR_FILE_READING:
+            printf("File reading error.\n"); break;
+        case ERROR_FILE_WRITING:
+            printf("File write error.\n"); break;
         case ERROR_READ:
             printf("Reading failure.\n"); break;
         case FILE_OPEN_ERROR:
             printf("File open failure.\n"); break;
-        case STAT_ERROR:
-            printf("Stat failure.\n"); break;
-        case FTRUNCATE_ERROR:
-            printf("Ftruncate failure.\n"); break;
         default:
             printf("Unknown error.\n"); break;
     }
@@ -332,6 +329,7 @@ int Howmuch(char* input) {
     time(&now);
     const double dist = difftime(now, *past);
     free(past);
+
     switch (*ptr) {
         case 's': {
             printf("Seconds passed: %d\n", (int)dist);
@@ -401,12 +399,19 @@ int InitDataFromFile(struct Data* base, const char* filename) {
         for (int i = 0; i < base->size; ++i) {
             struct User user;
             fread(&user.login.len, sizeof(int), 1, file);
-            // user.login.str = (char*)malloc(user.login.len + 1);
-            // if (user.login.str == NULL) {
-            //     fclose(file);
-            //     return MEMORY_ALLOCATION_ERROR;
-            // }
-            fread(&user.login.str, sizeof(char) * user.login.len, 1, file);
+
+            user.login.str = (char*)malloc(sizeof(char) * user.login.len );
+            if (user.login.str == NULL) {
+                fclose(file);
+                for (int j = 0; j < i; ++j) {
+                    free(base->users[j].login.str);
+                }
+                free(base->users);
+                return MEMORY_ALLOCATION_ERROR;
+            }
+
+            fread(user.login.str, sizeof(char), user.login.len, file);
+            user.login.str[user.login.len] = '\0';
             fread(&user.pin, sizeof(int), 1, file);
             fread(&user.sanctions, sizeof(int), 1, file);
 
@@ -429,60 +434,83 @@ int InitDataFromFile(struct Data* base, const char* filename) {
 }
 
 int SaveDataToFile(const struct Data* base, const char* filename) {
+    printf("HUI\n");
     FILE* file = fopen(filename, "wb");
     if (!file) {
         return FILE_OPEN_ERROR;
     }
-
+    printf("HUI\n");
     fwrite(&base->size, sizeof(int), 1, file);
     fwrite(&base->capacity, sizeof(int), 1, file);
     if (base->users == NULL) {
         return SUCCESS;
     }
+    printf("HUI\n");
+
     for (int i = 0; i < base->size; ++i) {
         fwrite(&(base->users[i].login.len), sizeof(int), 1, file);
-        fwrite(&(base->users[i].login.str), sizeof(char) * base->users[i].login.len, 1, file);
+
+        if (fwrite(base->users[i].login.str, sizeof(char), base->users[i].login.len, file)
+            != base->users[i].login.len) {
+            return ERROR_FILE_WRITING;
+        }
+
         fwrite(&(base->users[i].pin), sizeof(int), 1, file);
         fwrite(&(base->users[i].sanctions), sizeof(int), 1, file);
     }
-
+    printf("HUI\n");
     fclose(file);
     return SUCCESS;
 }
 
-void FreeUsers(struct Data* base) {
+void FreeUsers(const struct Data* base) {
+    if (base == NULL) {
+        return;
+    }
     if (base->users == NULL) {
-        free(base->users);
-        free(base);
         return;
     }
     for (int i = 0; i < base->size; ++i) {
         free(base->users[i].login.str);
     }
     free(base->users);
-    free(base);
 }
 
 int main() {
-    int in_account = 0;
-
     struct Data* base = (struct Data*)malloc(sizeof(struct Data));
     if (base == NULL) {
         HandlingError(MEMORY_ALLOCATION_ERROR);
         return MEMORY_ALLOCATION_ERROR;
     }
 
-    InitDataFromFile(base, "data.txt");
+    int err;
+    if ((err = InitDataFromFile(base, "data.txt"))) {
+        HandlingError(err);
+        return err;
+    }
+
+    // for (int i = 0; i < base->size; ++i) {
+    //     printf("%d. (%llu) ||%s||\n", i, base->users[i].login.len, base->users[i].login.str);
+    // }
 
     while (1) {
         char code[2];
+        int in_account = 0;
+
         printf("Yo\nYou have 3 ways:\n1 - Sign in\n2 - Create an account\n3 - Quit\n");
         printf("Enter your choice:");
+
         while (1) {
             if (scanf("%s", code) != 1) {
                 HandlingError(ERROR_READ);
-                SaveDataToFile(base, "data.txt");
+                if ((err = SaveDataToFile(base, "data.txt"))) {
+                    HandlingError(err);
+                    FreeUsers(base);
+                    free(base);
+                    return err;
+                }
                 FreeUsers(base);
+                free(base);
                 return ERROR_READ;
             }
             if (strlen(code) > 1 || (code[0] != '1' && code[0] != '2' && code[0] != '3')) {
@@ -492,8 +520,14 @@ int main() {
             break;
         }
         if (code[0] == '3') {
-            SaveDataToFile(base, "data.txt");
+            if ((err = SaveDataToFile(base, "data.txt"))) {
+                HandlingError(err);
+                FreeUsers(base);
+                free(base);
+                return err;
+            }
             FreeUsers(base);
+            free(base);
             return SUCCESS;
         }
 
@@ -501,50 +535,57 @@ int main() {
         char login[10];
         if (scanf("%s", login) != 1) {
             HandlingError(ERROR_READ);
-            SaveDataToFile(base, "data.txt");
+            if ((err = SaveDataToFile(base, "data.txt"))) {
+                HandlingError(err);
+                FreeUsers(base);
+                free(base);
+                return err;
+            }
             FreeUsers(base);
+            free(base);
             return ERROR_READ;
         }
         int userId = -1;
-        int err;
         if ((err = LoginValid(login))) {
             HandlingError(err);
-            break;
+            continue;
         }
 
         printf("Enter pincode:");
         char pin[10];
         if (scanf("%s", pin) != 1) {
             HandlingError(ERROR_READ);
-            SaveDataToFile(base, "data.txt");
+            if ((err = SaveDataToFile(base, "data.txt"))) {
+                HandlingError(err);
+                FreeUsers(base);
+                free(base);
+                return err;
+            }
             FreeUsers(base);
+            free(base);
             return ERROR_READ;
         }
         if ((err = PinValid(pin))) {
             HandlingError(err);
-            break;
+            continue;
         }
         const int pincode = atoi(pin);
 
         if (code[0] == '1') {
             if ((err = SignIn(login, pincode, base, &userId))) {
                 HandlingError(err);
-                break;
+                continue;
             }
             in_account = 1;
         }
         else if (code[0] == '2') {
             if ((err = CreateAcc(login, pincode, base, &userId))) {
                 HandlingError(err);
-                break;
+                continue;
             }
             in_account = 1;
         }
-        else {
-            printf("||%s||\n", code);
-            printf("Something wrong.\n");
-            break;
-        }
+
         int sanc = base->users[userId].sanctions;
 
         while (in_account) {
@@ -554,8 +595,14 @@ int main() {
             char command[10];
             if (scanf("%s", command) != 1) {
                 HandlingError(ERROR_READ);
-                SaveDataToFile(base, "data.txt");
+                if ((err = SaveDataToFile(base, "data.txt"))) {
+                    HandlingError(err);
+                    FreeUsers(base);
+                    free(base);
+                    return err;
+                }
                 FreeUsers(base);
+                free(base);
                 return ERROR_READ;
             }
 
@@ -569,7 +616,6 @@ int main() {
                 --sanc;
                 printf("You can no longer enter commands in the current session"
                        " due to the restrictions imposed.\n");
-                in_account = 0;
                 break;
             }
 
@@ -600,5 +646,6 @@ int main() {
                 }
             }
         }
+
     }
 }
