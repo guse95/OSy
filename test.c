@@ -57,10 +57,9 @@ int main() {
     //     perror("Could not open directory");
     //     return 1;
     // }
-
-    char ptr[] = "20:03:00 19:03:2025";
-
-    time_t* now = (time_t*)malloc(sizeof(time_t));
-    ToTimeT(ptr, now);
-    free(now);
+    char com[100], con[100];
+    scanf("%s", com);
+    printf("%s\n", com);
+    scanf(" %s %s %s", con);
+    printf("%s\n", con);
 }

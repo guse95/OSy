@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-// #include <crypt.h>
+#include <crypt.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -24,6 +24,7 @@ enum {
     ERROR_FILE_WRITING,
     ERROR_READ,
     FILE_OPEN_ERROR,
+    ERROR_UNABLE_TO_ENCRYPT,
 };
 
 enum {
@@ -84,7 +85,7 @@ struct string {
 
 struct User {
     struct string login;
-    int pin; // struct string
+    struct string pin; // struct string
     int sanctions;
 };
 
@@ -121,55 +122,56 @@ int PinValid(const char* word) {
     return SUCCESS;
 }
 
-// int encrypt_password(const char *password, char **encrypted_password)
-// {
-//
-//     char *salt = crypt_gensalt_ra(NULL, 0, NULL, 0);
-//     if (!salt)
-//     {
-//         return -1;
-//     }
-//
-//     void *enc_ctx = NULL;
-//     int enc_cxt_sz = 0;
-//     char *tmp_encrypted_password = crypt_ra(password, salt, &enc_ctx, &enc_cxt_sz);
-//
-//     if (tmp_encrypted_password == NULL)
-//     {
-//         free(salt);
-//         return -1;
-//     }
-//
-//     *encrypted_password = (char *)calloc((strlen(tmp_encrypted_password) + 1), sizeof(char));
-//
-//     strcpy(*encrypted_password, tmp_encrypted_password);
-//
-//     free(enc_ctx);
-//     free(salt);
-//     return 0;
-// }
-//
-// int compare_passwords(const char *password, const char *hashed_password, int *compare_res)
-// {
-//
-//     int cmp_res = 0;
-//
-//     void *enc_ctx = NULL;
-//     int enc_cxt_sz = 0;
-//
-//     char *hashed_entered_password = crypt_ra(password, hashed_password, &enc_ctx, &enc_cxt_sz);
-//     if (!hashed_entered_password)
-//     {
-//         return -1;
-//     }
-//
-//     *compare_res = strcmp(hashed_password, hashed_entered_password);
-//
-//     free(enc_ctx);
-//     return 0;
-// }
+int encrypt_password(const char *password, char **encrypted_password) {
 
-int CreateAcc(const char* login, const int pin, struct Data* base, int* Id) {
+    char *salt = crypt_gensalt_ra(NULL, 0, NULL, 0);
+    if (!salt)
+    {
+        return ERROR_UNABLE_TO_ENCRYPT;
+    }
+
+    void *enc_ctx = NULL;
+    int enc_cxt_sz = 0;
+    char *tmp_encrypted_password = crypt_ra(password, salt, &enc_ctx, &enc_cxt_sz);
+
+    if (tmp_encrypted_password == NULL)
+    {
+        free(salt);
+        return ERROR_UNABLE_TO_ENCRYPT;
+    }
+
+    *encrypted_password = (char *)calloc((strlen(tmp_encrypted_password) + 1), sizeof(char));
+    if (!(*encrypted_password)) {
+        free(salt);
+        free(enc_ctx);
+        return MEMORY_ALLOCATION_ERROR;
+    }
+
+    strcpy(*encrypted_password, tmp_encrypted_password);
+
+    free(enc_ctx);
+    free(salt);
+    return SUCCESS;
+}
+
+int compare_passwords(const char *password, const char *hashed_password, int *compare_res)
+{
+    void *enc_ctx = NULL;
+    int enc_cxt_sz = 0;
+
+    char *hashed_entered_password = crypt_ra(password, hashed_password, &enc_ctx, &enc_cxt_sz);
+    if (!hashed_entered_password)
+    {
+        return MEMORY_ALLOCATION_ERROR;
+    }
+
+    *compare_res = strcmp(hashed_password, hashed_entered_password);
+
+    free(enc_ctx);
+    return SUCCESS;
+}
+
+int CreateAcc(const char* login, const char* pin, struct Data* base, int* Id) {
     for (int i = 0; i < base->size; i++) {
         if (strcmp(base->users[i].login.str, login) == 0) {
             return ERROR_USER_EXISTS;
@@ -189,20 +191,31 @@ int CreateAcc(const char* login, const int pin, struct Data* base, int* Id) {
     if (base->users[base->size - 1].login.str == NULL) {
         return MEMORY_ALLOCATION_ERROR;
     }
+    char* ePin;
+    int err;
+    if ((err = encrypt_password(pin, &ePin))) {
+        return err;
+    }
     base->users[base->size - 1].login.len = strlen(login);
-    base->users[base->size - 1].pin = pin;
+    base->users[base->size - 1].pin.str = ePin;
+    base->users[base->size - 1].pin.len = strlen(ePin);
     base->users[base->size - 1].sanctions = -1;
     *Id = base->size - 1;
     return SUCCESS;
 }
 
-int SignIn(const char* login, const int pin, const struct Data* base, int* Id) {
+int SignIn(const char* login, const char* pin, const struct Data* base, int* Id) {
     if (base->size == 0 || base->users == NULL) {
         return ERROR_WRONG_LOGIN;
     }
+    int cmp_res = 0;
+    int err;
     for (int i = 0; i < base->size; i++) {
         if (strcmp(base->users[i].login.str, login) == 0) {
-            if (base->users[i].pin == pin) {
+            if ((err = compare_passwords(pin, base->users[i].pin.str, &cmp_res))) {
+                return err;
+            }
+            if (!cmp_res) {
                 *Id = i;
                 return SUCCESS;
             }
@@ -212,13 +225,21 @@ int SignIn(const char* login, const int pin, const struct Data* base, int* Id) {
     return ERROR_WRONG_LOGIN;
 }
 
-int CommandValid(char* command) {
-    const char* cmd = strtok(command, " ");
-    if (strcmp(cmd, "Time") == 0) {return TIME;}
-    if (strcmp(cmd, "Date") == 0) {return DATE;}
-    if (strcmp(cmd, "Howmuch") == 0) {return HOWMUCH;}
-    if (strcmp(cmd, "Logout") == 0) {return LOGOUT;}
-    if (strcmp(cmd, "Sanctions") == 0) {return SANCTIONS;}
+int contain(const char* string, const char* word) {
+    for (int i = 0; word[i] != '\0'; i++) {
+        if (string[i] != word[i]) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int CommandValid(const char* command) {
+    if (strcmp(command, "Time") == 0) {return TIME;}
+    if (strcmp(command, "Date") == 0) {return DATE;}
+    if (contain(command, "Howmuch") == 0) {return HOWMUCH;}
+    if (strcmp(command, "Logout") == 0) {return LOGOUT;}
+    if (contain(command, "Sanctions") == 0) {return SANCTIONS;}
     return -1;
 }
 
@@ -243,18 +264,19 @@ void Date() {
 }
 
 int TimeValid(const char* ptr) {
-    if (strlen(ptr) != 10 || strlen(ptr) != 8 || ptr[2] != ':' || ptr[5] != ':') {
+    if (strlen(ptr) != 19 || ptr[2] != ':' || ptr[5] != ':' || ptr[11] != ':' || ptr[14] != ':' || ptr[8] != ' ') {
         return ERROR_HOWMUCH_FORMAT;
     }
-    while (*ptr != '\0') {
-        if (!isdigit(*ptr) && *ptr != ':') {
+
+    for (int i = 0; ptr[i] != '\0'; i++) {
+        if (!isdigit(ptr[i]) && (i != 2 && i != 5 && i != 11 && i != 14 && i != 8)) {
             return ERROR_HOWMUCH_FORMAT;
         }
     }
     return SUCCESS;
 }
 
-int AtoiLR(const char *str, int l, int r) {
+int AtoiLR(const char *str, int l, const int r) {
     int res = 0;
     while (l <= r) {
         res = res * 10 + (str[l++] - '0');
@@ -293,23 +315,20 @@ int Howmuch(char* input) {
         return ERROR_HOWMUCH_FORMAT;
     }
 
-    char* ptr = input;
-    while (*ptr != ' ') {
-        ptr++;
-    }
-    char *time_str = ptr + 1;
-    while (*ptr != ' ' || *ptr == '\0') {
-        ptr++;
-    }
-    ++ptr;
-    while (*ptr != ' ' || *ptr == '\0') {
-        ptr++;
-    }
-    if (*ptr == '\0' || *(ptr + 1) != '-') {
+    char time_str[30];
+    const char* t = strtok(input, " ");
+    t = strtok(NULL, " ");
+    const char* date = strtok(NULL, " ");
+    const char* flag = strtok(NULL, " ");
+
+    if (flag[0] != '-' || flag[2] != '\0') {
         return ERROR_HOWMUCH_FORMAT;
     }
-    *ptr = '\0';
-    ptr += 2;
+
+    strcpy(time_str, t);
+    strcat(time_str, " ");
+    strcat(time_str, date);
+
     int err;
     if ((err = TimeValid(time_str))) {
         return err;
@@ -320,17 +339,17 @@ int Howmuch(char* input) {
         return MEMORY_ALLOCATION_ERROR;
     }
 
-    if ((err = ToTimeT(ptr, past))) {
+    if ((err = ToTimeT(time_str, past))) {
         free(past);
         return err;
     }
-
     time_t now;
     time(&now);
     const double dist = difftime(now, *past);
+
     free(past);
 
-    switch (*ptr) {
+    switch (flag[1]) {
         case 's': {
             printf("Seconds passed: %d\n", (int)dist);
             break;
@@ -357,6 +376,7 @@ int Howmuch(char* input) {
 
 int Sanctions(char* command, const char* login, const struct Data* base) {
     const char* username = strtok(command, " ");
+
     username = strtok(NULL, " ");
     if (username == NULL || LoginValid(username)) {
         return ERROR_SANCTIONS_FORMAT;
@@ -365,7 +385,7 @@ int Sanctions(char* command, const char* login, const struct Data* base) {
         return ERROR_NO_LICENSE;
     }
     const char* sanction = strtok(NULL, " ");
-    if (sanction == NULL || (strlen(sanction) != 1 || ('1' <= sanction[0] && sanction[0] <= '5'))) {
+    if (sanction == NULL || (strlen(sanction) != 1 || ('1' < sanction[0] && sanction[0] > '5'))) {
         return ERROR_SANCTIONS_FORMAT;
     }
     if (base->size == 0 || base->users == NULL) {
@@ -382,45 +402,58 @@ int Sanctions(char* command, const char* login, const struct Data* base) {
 
 int InitDataFromFile(struct Data* base, const char* filename) {
     if (access(filename, F_OK) == 0) {
-        FILE* file = fopen(filename, "rb");
+        FILE* file = fopen(filename, "r");
         if (!file) {
             return FILE_OPEN_ERROR;
         }
-
         fread(&base->size, sizeof(int), 1, file);
         fread(&base->capacity, sizeof(int), 1, file);
-
         base->users = (struct User*)malloc(base->capacity * sizeof(struct User));
         if (base->users == NULL) {
             fclose(file);
             return MEMORY_ALLOCATION_ERROR;
         }
-
         for (int i = 0; i < base->size; ++i) {
             struct User user;
-            fread(&user.login.len, sizeof(int), 1, file);
-
-            user.login.str = (char*)malloc(sizeof(char) * user.login.len );
-            if (user.login.str == NULL) {
-                fclose(file);
-                for (int j = 0; j < i; ++j) {
-                    free(base->users[j].login.str);
+            {
+                fread(&user.login.len, sizeof(int), 1, file);
+                user.login.str = (char*)malloc(sizeof(char) * (user.login.len + 1));
+                if (user.login.str == NULL) {
+                    fclose(file);
+                    for (int j = 0; j < i; ++j) {
+                        free(base->users[j].login.str);
+                        free(base->users[j].pin.str);
+                    }
+                    free(base->users);
+                    return MEMORY_ALLOCATION_ERROR;
                 }
-                free(base->users);
-                return MEMORY_ALLOCATION_ERROR;
+                fread(user.login.str, sizeof(char), user.login.len, file);
+                user.login.str[user.login.len] = '\0';
             }
-
-            fread(user.login.str, sizeof(char), user.login.len, file);
-            user.login.str[user.login.len] = '\0';
-            fread(&user.pin, sizeof(int), 1, file);
+            {
+                fread(&user.pin.len, sizeof(int), 1, file);
+                user.pin.str = (char*)malloc(sizeof(char) * (user.pin.len + 1));
+                if (user.pin.str == NULL) {
+                    fclose(file);
+                    for (int j = 0; j < i; ++j) {
+                        free(base->users[j].login.str);
+                        free(base->users[j].pin.str);
+                    }
+                    free(base->users);
+                    return MEMORY_ALLOCATION_ERROR;
+                }
+                fread(user.pin.str, sizeof(char), user.pin.len, file);
+                user.pin.str[user.pin.len] = '\0';
+            }
+            
             fread(&user.sanctions, sizeof(int), 1, file);
 
-            base->users[i].login.str = strdup(user.login.str);
+            base->users[i].login.str = user.login.str;
             base->users[i].login.len = user.login.len;
-            base->users[i].pin = user.pin;
+            base->users[i].pin.str = user.pin.str;
+            base->users[i].pin.len = user.pin.len;
             base->users[i].sanctions = user.sanctions;
         }
-
         fclose(file);
     } else {
         base->capacity = 2;
@@ -434,31 +467,26 @@ int InitDataFromFile(struct Data* base, const char* filename) {
 }
 
 int SaveDataToFile(const struct Data* base, const char* filename) {
-    printf("HUI\n");
-    FILE* file = fopen(filename, "wb");
+    FILE* file = fopen(filename, "w");
     if (!file) {
         return FILE_OPEN_ERROR;
     }
-    printf("HUI\n");
+
     fwrite(&base->size, sizeof(int), 1, file);
     fwrite(&base->capacity, sizeof(int), 1, file);
     if (base->users == NULL) {
         return SUCCESS;
     }
-    printf("HUI\n");
 
     for (int i = 0; i < base->size; ++i) {
         fwrite(&(base->users[i].login.len), sizeof(int), 1, file);
+        fwrite(base->users[i].login.str, sizeof(char), base->users[i].login.len, file);
 
-        if (fwrite(base->users[i].login.str, sizeof(char), base->users[i].login.len, file)
-            != base->users[i].login.len) {
-            return ERROR_FILE_WRITING;
-        }
+        fwrite(&(base->users[i].pin.len), sizeof(int), 1, file);
+        fwrite(base->users[i].pin.str, sizeof(char), base->users[i].pin.len, file);
 
-        fwrite(&(base->users[i].pin), sizeof(int), 1, file);
         fwrite(&(base->users[i].sanctions), sizeof(int), 1, file);
     }
-    printf("HUI\n");
     fclose(file);
     return SUCCESS;
 }
@@ -472,6 +500,7 @@ void FreeUsers(const struct Data* base) {
     }
     for (int i = 0; i < base->size; ++i) {
         free(base->users[i].login.str);
+        free(base->users[i].pin.str);
     }
     free(base->users);
 }
@@ -488,10 +517,6 @@ int main() {
         HandlingError(err);
         return err;
     }
-
-    // for (int i = 0; i < base->size; ++i) {
-    //     printf("%d. (%llu) ||%s||\n", i, base->users[i].login.len, base->users[i].login.str);
-    // }
 
     while (1) {
         char code[2];
@@ -569,21 +594,19 @@ int main() {
             HandlingError(err);
             continue;
         }
-        const int pincode = atoi(pin);
 
         if (code[0] == '1') {
-            if ((err = SignIn(login, pincode, base, &userId))) {
-                HandlingError(err);
+            err = SignIn(login, pin, base, &userId);
+            HandlingError(err);
+            if (err) {
                 continue;
             }
             in_account = 1;
         }
         else if (code[0] == '2') {
-            if ((err = CreateAcc(login, pincode, base, &userId))) {
-                HandlingError(err);
-                continue;
-            }
-            in_account = 1;
+            err = CreateAcc(login, pin, base, &userId);
+            HandlingError(err);
+            continue;
         }
 
         int sanc = base->users[userId].sanctions;
@@ -592,8 +615,9 @@ int main() {
             printf("Available commands:\nTime\nDate\nHowmuch hh:mm:ss "
                    "DD:MM:YYYY <flag>(possible: -s, -m, -h, -y)\nLogout\n"
                    "Sanctions username <number>(from 1 to 5)\nEnter command: ");
-            char command[10];
-            if (scanf("%s", command) != 1) {
+            char command[40];
+            getchar();
+            if (scanf("%[^\n]", command) != 1) {
                 HandlingError(ERROR_READ);
                 if ((err = SaveDataToFile(base, "data.txt"))) {
                     HandlingError(err);
