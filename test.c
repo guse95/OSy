@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 
 int AtoiLR(const char *str, int l, int r) {
     int res = 0;
@@ -44,22 +45,21 @@ int ToTimeT(const char* ptr, time_t* timeptr) {
 
 
 int main() {
-    // DIR *dir;
-    // struct dirent *ent;
-    //
-    // dir = opendir(".");
-    // if (dir != NULL) {
-    //     while ((ent = readdir(dir)) != NULL) {
-    //         printf("%s\n", ent->d_name);
-    //     }
-    //     closedir(dir);
-    // } else {
-    //     perror("Could not open directory");
-    //     return 1;
-    // }
-    char com[100], con[100];
-    scanf("%s", com);
-    printf("%s\n", com);
-    scanf(" %s %s %s", con);
-    printf("%s\n", con);
+    DIR *dir = opendir("..");
+    struct dirent *ent = readdir(dir);
+    ent = readdir(dir);
+    ent = readdir(dir);
+
+    printf("||%s||\n", ent->d_name);
+    printf("HUY\n");
+    const int fd = open(ent->d_name, "r");
+    printf("HUY\n");
+
+    struct stat file_stat;
+    int ret = fstat(fd, &file_stat);
+    printf("HUY\n");
+    printf("%lu\n%hu\n%lu\n", file_stat.st_dev, file_stat.st_mode, file_stat.st_rdev);
+
+    closedir(dir);
+    close(fd);
 }
