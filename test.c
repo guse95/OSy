@@ -45,21 +45,5 @@ int ToTimeT(const char* ptr, time_t* timeptr) {
 
 
 int main() {
-    DIR *dir = opendir("..");
-    struct dirent *ent = readdir(dir);
-    ent = readdir(dir);
-    ent = readdir(dir);
 
-    printf("||%s||\n", ent->d_name);
-    printf("HUY\n");
-    const int fd = open(ent->d_name, "r");
-    printf("HUY\n");
-
-    struct stat file_stat;
-    int ret = fstat(fd, &file_stat);
-    printf("HUY\n");
-    printf("%lu\n%hu\n%lu\n", file_stat.st_dev, file_stat.st_mode, file_stat.st_rdev);
-
-    closedir(dir);
-    close(fd);
 }
