@@ -94,9 +94,9 @@ int LsDir(DIR* dir, const char* dir_name, const int flag) {
 
         if (flag == NF) {
             if (file_stat.st_mode & S_IFDIR) {
-                printf("%20lu   \033[42;34m%s\033[0m\n", file_stat.st_ino, ent->d_name);
+                printf("\033[42;34m%s\033[0m ", ent->d_name);
             } else {
-                printf("%20lu   \033[32m%s\033[0m\n", file_stat.st_ino, ent->d_name);
+                printf("\033[32m%s\033[0m ", ent->d_name);
             }
         }
 
@@ -129,6 +129,7 @@ int LsDir(DIR* dir, const char* dir_name, const int flag) {
         }
         close(fd);
     }
+    printf("\n");
     return SUCCESS;
 }
 
