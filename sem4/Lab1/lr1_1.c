@@ -440,6 +440,7 @@ int InitDataFromFile(struct Data* base, const char* filename) {
                         free(base->users[j].pin.str);
                     }
                     free(base->users);
+                    free(user.login.str); /// XD
                     return MEMORY_ALLOCATION_ERROR;
                 }
                 fread(user.pin.str, sizeof(char), user.pin.len, file);
@@ -526,7 +527,7 @@ int main() {
         printf("Enter your choice:");
 
         while (1) {
-            if (scanf("%s", code) != 1) {
+            if (scanf("%s", code) == 0) {
                 HandlingError(ERROR_READ);
                 if ((err = SaveDataToFile(base, "data.txt"))) {
                     HandlingError(err);
@@ -632,6 +633,7 @@ int main() {
 
             const int com = CommandValid(command);
             if (com < 0 ) {
+                printf("Invalid command. Try again:\n");
                 continue;
             }
             if (sanc > 0) {
