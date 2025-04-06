@@ -492,7 +492,7 @@ int SaveDataToFile(const struct Data* base, const char* filename) {
     return SUCCESS;
 }
 
-void FreeUsers(const struct Data* base) {
+void FreeUsers(struct Data* base) {
     if (base == NULL) {
         return;
     }
@@ -504,6 +504,7 @@ void FreeUsers(const struct Data* base) {
         free(base->users[i].pin.str);
     }
     free(base->users);
+    free(base);
 }
 
 int main() {
@@ -520,25 +521,25 @@ int main() {
     }
 
     while (1) {
-        char code[2];
+        char code[256];
         int in_account = 0;
 
         printf("Yo\nYou have 3 ways:\n1 - Sign in\n2 - Create an account\n3 - Quit\n");
         printf("Enter your choice:");
 
         while (1) {
-            if (scanf("%s", code) == 0) {
+            if (fgets(code, sizeof(code), stdin) == NULL) {
                 HandlingError(ERROR_READ);
                 if ((err = SaveDataToFile(base, "data.txt"))) {
                     HandlingError(err);
                     FreeUsers(base);
-                    free(base);
                     return err;
                 }
                 FreeUsers(base);
-                free(base);
                 return ERROR_READ;
             }
+            // while ((c = getchar()) != '\n' && c != EOF) {}
+            code[strcspn(code, "\n")] = '\0';
             if (strlen(code) > 1 || (code[0] != '1' && code[0] != '2' && code[0] != '3')) {
                 printf("Unavailable code. Try again:\n");
                 continue;
@@ -549,28 +550,27 @@ int main() {
             if ((err = SaveDataToFile(base, "data.txt"))) {
                 HandlingError(err);
                 FreeUsers(base);
-                free(base);
                 return err;
             }
             FreeUsers(base);
-            free(base);
             return SUCCESS;
         }
 
         printf("Enter login:");
-        char login[10];
-        if (scanf("%s", login) != 1) {
+        char login[256];
+        if (fgets(login, sizeof(login), stdin) == NULL) {
             HandlingError(ERROR_READ);
             if ((err = SaveDataToFile(base, "data.txt"))) {
                 HandlingError(err);
                 FreeUsers(base);
-                free(base);
                 return err;
             }
             FreeUsers(base);
-            free(base);
             return ERROR_READ;
         }
+        // while ((c = getchar()) != '\n' && c != EOF) {}
+        login[strcspn(login, "\n")] = '\0';
+
         int userId = -1;
         if ((err = LoginValid(login))) {
             HandlingError(err);
@@ -578,19 +578,19 @@ int main() {
         }
 
         printf("Enter pincode:");
-        char pin[10];
-        if (scanf("%s", pin) != 1) {
+        char pin[256];
+        if (fgets(pin, sizeof(pin), stdin) == NULL) {
             HandlingError(ERROR_READ);
             if ((err = SaveDataToFile(base, "data.txt"))) {
                 HandlingError(err);
                 FreeUsers(base);
-                free(base);
                 return err;
             }
             FreeUsers(base);
-            free(base);
             return ERROR_READ;
         }
+        // while ((c = getchar()) != '\n' && c != EOF) {}
+        pin[strcspn(pin, "\n")] = '\0';
         if ((err = PinValid(pin))) {
             HandlingError(err);
             continue;
@@ -623,11 +623,9 @@ int main() {
                 if ((err = SaveDataToFile(base, "data.txt"))) {
                     HandlingError(err);
                     FreeUsers(base);
-                    free(base);
                     return err;
                 }
                 FreeUsers(base);
-                free(base);
                 return ERROR_READ;
             }
 
