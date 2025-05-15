@@ -49,7 +49,7 @@ int main(int argc, char const *argv[])
 {
     (void)argc;
     (void)argv;
-    key_t key = ftok("/home/gaalex/Programs/SysProg/SysProg/Labs/Lab1/Task4/Server/output/main", 65);
+    key_t key = ftok("main", 65);
 
     pid = getpid();
 

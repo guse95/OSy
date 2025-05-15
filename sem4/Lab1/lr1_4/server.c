@@ -26,14 +26,11 @@ struct message
     int from;
 };
 
-
-
-
-typedef enum {
+enum {
     WOLF = 1,
     GOAT = 2,
     CABBAGE = 4
-}Items;
+};
 
 enum messageTypes{
     TO_SERVER = 1,
@@ -56,7 +53,7 @@ enum returnType{
 
 typedef struct{
     unsigned char l, r, curPosition;
-    Items buffer;
+    unsigned int buffer;
 }Game;
 
 typedef int (*callback)(Game*, struct message*, unsigned char);
@@ -357,7 +354,7 @@ void* input(void* argg)
     game.curPosition = RIGHT;
     game.buffer = 0;
 
-    key_t key = ftok("/home/gaalex/Programs/SysProg/SysProg/Labs/Lab1/Task4/Server/output/main", 65);
+    key_t key = ftok("main", 65);
     if(key == -1){
         perror("ftok");
         printf("Ftok error!\n");
@@ -435,7 +432,8 @@ void* input(void* argg)
 }
 
 int main(int argc, char* argv[]){
-    (void)argc;(void)argv;
+    (void)argc;
+    (void)argv;
 
     pthread_t mth;
 

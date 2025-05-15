@@ -103,11 +103,12 @@ void* woman_thread(void* arg){
             rndTime = rand() % 5;
             sleep(rndTime);
             woman_leaves();
-            printf("Woman %d ended washing and escaped the room.\n", id);
+            printf("Woman %d ended washing and out from the room.\n", id);
         }
         rndTime = 2 + rand() % 6;
         sleep(rndTime);
     }
+    return NULL;
 }
 void* man_thread(void* arg){
     int id = *((int*)arg);
@@ -130,11 +131,12 @@ void* man_thread(void* arg){
             rndTime = rand() % 3;
             sleep(rndTime);
             man_leaves();
-            printf("Man %d ended washing and escaped the room.\n", id);
+            printf("Man %d ended washing and out from the room.\n", id);
         }
         rndTime = 2 + rand() % 6;
         sleep(rndTime);
     }
+    return NULL;
 }
 
 

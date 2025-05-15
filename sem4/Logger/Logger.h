@@ -42,7 +42,6 @@ class Logger {
                 return " UNKNOWN: ";
         }
     }
-public:
     void message(const unsigned int lvl, const std::string& str) {
         if (lvl >= log_level) {
             const time_t now = time(0);
@@ -54,6 +53,7 @@ public:
             }
         }
     }
+public:
     void critical(const std::string& msg) {
         message(CRITICAL, msg);
     }

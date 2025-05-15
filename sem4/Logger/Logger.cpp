@@ -8,6 +8,6 @@ int main() {
                             .add_handler(std::cout)
                             .add_handler(std::make_unique<std::ofstream>("test.txt"))
                             .make_object();
-    my_logger->message(INFO, "Hello World!");
+    my_logger->info("Hello World!");
     delete my_logger;
 }
