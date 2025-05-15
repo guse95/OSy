@@ -86,7 +86,7 @@ public:
     explicit MsgQueueOStream(int msgid) : std::ostream(&buffer), buffer(msgid) {}
 };
 
-void generator(std::mutex& life, std::mutex& commands, bool& is_working, int msg_id, std::condition_variable& cv) {
+void generator(std::atomic<bool>& should_return, std::mutex& commands, std::atomic<bool>& is_working, int msg_id, std::condition_variable& cv) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> port_dist(1, 65535);
@@ -101,7 +101,7 @@ void generator(std::mutex& life, std::mutex& commands, bool& is_working, int msg
             .make_object();
 
     const std::string operations[] = {"Connect", "Disconnect", "Receive", "Send"};
-    while (life.try_lock()) {
+    while (!should_return) {
         std::string log = operations[op_ind(gen)];
         log += " from sourse: 192.168.1.0:";
         log += std::to_string(port_dist(gen));
@@ -109,57 +109,42 @@ void generator(std::mutex& life, std::mutex& commands, bool& is_working, int msg
         log += std::to_string(port_dist(gen));
         if (log[0] == 'S' || log[0] == 'R') {
             log += " " + std::to_string(size_dist(gen)) + " Kb\n";
+        } else {
+            log += '\n';
         }
 
         logger->info(log);
-        life.unlock();
         sleep(1);
-        // TODO: че-то неправильно паузится
         std::unique_lock<std::mutex> lock(commands);
-        cv.wait(lock, [is_working] {return is_working;});
+        cv.wait(lock, [&is_working] {return is_working.load();});
     }
+    delete logger;
 }
 
-void analyzer(std::mutex& life, std::mutex& commands, bool& is_working, const int msg_id, std::condition_variable& cv, std::map<std::string, ip_stat>& data) {
+void analyzer(std::atomic<bool>& should_return, std::mutex& commands, std::atomic<bool>& is_working, const int msg_id, std::condition_variable& cv, std::map<std::string, ip_stat>& data) {
     msgb msg{};
 
-    while (life.try_lock()) {
+    while (!should_return) {
         if (msgrcv(msg_id, &msg, sizeof(msg.mtext), 0, 0) != -1) {
             char operation = msg.mtext[0];
-            char ip_from[16], ip_to[16], sz[4];
+            std::string ip_from, ip_to;
+            int pck_sz = 0;
 
-            int i = 16;
-            while (msg.mtext[i++] != ':') {}
-            ++i;
-            int ind_from = 0;
-            while (msg.mtext[i] != ':') {
-                ip_from[ind_from] = msg.mtext[i];
-                ++ind_from;
-                ++i;
-            }
-            ip_from[ind_from] = '\0';
-            ++i;
-            while (msg.mtext[i++] != ':') {}
-            ++i;
-            int ind_to = 0;
-            while (msg.mtext[i] != ':') {
-                ip_to[ind_to] = msg.mtext[i];
-                ++ind_to;
-                ++i;
-            }
-            sz[ind_to] = '\0';
-            while (msg.mtext[i++] != ' ' || msg.mtext[i] != '\0') {}
-            int ind_sz = 0;
-            while (msg.mtext[i] != ' ' || msg.mtext[i] != '\0') {
-                sz[ind_sz] = msg.mtext[i];
-                ++ind_sz;
-                ++i;
-            }
-            sz[ind_sz] = '\0';
-            int pck_sz = (ind_sz == 0) ? 0 : atoi(sz);
+            std::string msg_str(msg.mtext);
+            const size_t from_pos = msg_str.find("from sourse: ");
+            const size_t to_pos = msg_str.find("to destination: ");
+            const size_t size_pos = msg_str.find(" Kb\n");
 
-            std::string from_ip(ip_from);
-            std::string to_ip(ip_to);
+            if (from_pos != std::string::npos && to_pos != std::string::npos) {
+                ip_from = msg_str.substr(from_pos + 13, msg_str.find(':', from_pos) - (from_pos + 13));
+                ip_to = msg_str.substr(to_pos + 15, msg_str.find(':', to_pos) - (to_pos + 15));
+                pck_sz = 0;
+    
+                if (size_pos != std::string::npos) {
+                    const size_t sz_start = msg_str.rfind(' ', size_pos - 1);
+                    pck_sz = std::stoi(msg_str.substr(sz_start + 1, size_pos - sz_start - 1));
+                }
+            }
 
             data.insert(std::pair<std::string, ip_stat>(ip_from, ip_stat()));
             data.insert(std::pair<std::string, ip_stat>(ip_to, ip_stat()));
@@ -198,17 +183,14 @@ void analyzer(std::mutex& life, std::mutex& commands, bool& is_working, const in
                 data[ip_to].data_snd += pck_sz;
             }
         }
-        life.unlock();
         sleep(1);
-        // TODO: че-то неправильно паузится
         std::unique_lock<std::mutex> lock(commands);
-        cv.wait(lock, [is_working] {return is_working;});
+        cv.wait(lock, [&is_working] {return is_working.load();});
     }
 }
 
 int main() {
     std::mutex com;
-    std::mutex life;
     std::condition_variable cv;
 
     remove("nasrano");
@@ -243,47 +225,53 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    bool is_working = true;
-    int num_of_threads = 4;
+    std::atomic<bool> is_working{true};
+    std::atomic<bool> should_return{false};
+    int num_of_threads = 2;
 
     const pid_t generator_pid = fork();
     {
         if (generator_pid == 0) {
 
             std::cout << "Generator started (PID: " << getpid() << ")\n";
+            std::vector<std::thread> threads(num_of_threads);
+
             while (true) {
-                msgb msg;
-                if (ssize_t ret = msgrcv(msg_id_gen, &msg, sizeof(msg.mtext), 0, 0); ret == -1) {
+                msgb msg{};
+                ssize_t ret = msgrcv(msg_id_gen, &msg, sizeof(msg.mtext), 0, 0);
+                std::cout << "HUI0-1\n";
+                if (ret == -1) {
+                    std::cout << "PIZDA...\n";
                     perror("msgrcv in generator");
                     break;
                 }
+                std::cout << "HUI0\n";
                 switch (msg.mtype) {
                     case begin: {
-                        std::vector<std::thread> threads(num_of_threads);
-
+                        std::cout << "HUI1\n";
                         for (int i = 0; i < num_of_threads; ++i) {
                             threads[i] = std::thread(generator,
-                                std::ref(life),
+                                std::ref(should_return),
                                 std::ref(com),
                                 std::ref(is_working),
                                 msg_id_public,
                                 std::ref(cv));
                         }
-                        for (auto &th : threads) {
-                            th.join();
-                        }
+                        std::cout << "HUI1,5\n";
                         break;
                     }
                     case quit: {
                         std::cout << "Generator exiting...\n";
-                        life.lock();
+                        should_return = true;
                         return 0;
                     }
                     case stop: {
+                        std::cout << "HUI2\n";
                         is_working = false;
                         break;
                     }
                     case cont: {
+                        std::cout << "HUI3\n";
                         is_working = true;
                         cv.notify_all();
                         break;
@@ -294,6 +282,9 @@ int main() {
                     }
                 }
             }
+            for (auto &th : threads) {
+                th.join();
+            }
         }
     }
 
@@ -301,8 +292,10 @@ int main() {
     {
         if (analyzer_pid == 0) {
             std::cout << "Analyzer started (PID: " << getpid() << ")\n";
+            std::vector<std::thread> threads(num_of_threads);
+
             while (true) {
-                msgb msg;
+                msgb msg{};
                 if (ssize_t ret = msgrcv(msg_id_an, &msg, sizeof(msg.mtext), 0, 0); ret == -1) {
                     perror("msgrcv in analyzer");
                     break;
@@ -310,25 +303,20 @@ int main() {
                 std::vector<std::map<std::string, ip_stat>> stata(num_of_threads);
                 switch (msg.mtype) {
                     case begin: {
-                        std::vector<std::thread> threads(num_of_threads);
-
                         for (int i = 0; i < num_of_threads; ++i) {
                             threads[i] = std::thread(analyzer,
-                                std::ref(life),
+                                std::ref(should_return),
                                 std::ref(com),
                                 std::ref(is_working),
                                 msg_id_public,
                                 std::ref(cv),
                                 std::ref(stata[i]));
                         }
-                        for (auto &th : threads) {
-                            th.join();
-                        }
                         break;
                     }
                     case quit: {
                         std::cout << "Analyzer exiting...\n";
-                        life.lock();
+                        should_return = true;
                         return 0;
                     }
                     case stop: {
@@ -338,27 +326,32 @@ int main() {
                     case cont: {
                         is_working = true;
                         cv.notify_all();
+                        break;
                     }
                     case stat: {
                         ip_stat res{};
                         for (auto el : stata) {
                             res += el[msg.mtext];
                         }
-
-                        std::cout << "{ data_rcv: " << res.data_rcv
-                        << "\n\tdata_snd: " << res.data_snd
-                        << "\n\tcon_cnt: " << res.con_cnt
-                        << "\n\tcon_ip: [ ";
-                        for (auto el : res.con_ip) {
-                            std::cout << el << " ";
+                        std::string res_stat = "{ data_rcv: " + res.data_rcv;
+                        res_stat += "\n\tdata_snd: " + res.data_snd;
+                        res_stat += "\n\tcon_cnt: " + res.con_cnt;
+                        res_stat += "\n\tcon_ip: [ ";
+                        for (const auto& el : res.con_ip) {
+                            res_stat += el + " ";
                         }
-                        std::cout << "]\n}\n";
+                        res_stat += "]\n}\n";
+                        std::cout << res_stat;
+                        break;
                     }
                     default: {
                         std::cout << "something went wrong" << msg.mtype << "\n";
                         break;
                     }
                 }
+            }
+            for (auto &th : threads) {
+                th.join();
             }
             return 0;
         }
@@ -374,7 +367,7 @@ int main() {
               << "continue - resume processing\n"
               << "quit - exit program\n";
 
-    msgb message;
+    msgb message{};
     std::string command;
 
     while (true) {

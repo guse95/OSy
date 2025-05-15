@@ -1,2 +1,2 @@
 add_subdirectory(Lab1)
-add_subdirectory(Logger)
+add_subdirectory(Logger1)
