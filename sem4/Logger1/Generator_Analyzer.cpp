@@ -86,20 +86,13 @@ public:
     explicit MsgQueueOStream(int msgid) : std::ostream(&buffer), buffer(msgid) {}
 };
 
-void generator(std::atomic<bool>& should_return, std::mutex& commands, std::atomic<bool>& is_working, int msg_id, std::condition_variable& cv) {
+void generator(std::atomic<bool>& should_return, std::mutex& commands,std::mutex& for_public, Logger* logger, std::atomic<bool>& is_working, std::condition_variable& cv) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> port_dist(1, 65535);
     std::uniform_int_distribution<> size_dist(1, 1024);
     std::uniform_int_distribution<> op_ind(0, 3);
     std::uniform_int_distribution<> ip_ind(0, 9);
-
-    auto msg_stream = std::make_unique<MsgQueueOStream>(msg_id);
-
-    Logger *logger = LoggerBuilder().set_level(INFO)
-            .add_handler(std::move(msg_stream))
-            .add_handler(std::make_unique<std::ofstream>("test.txt"))
-            .make_object();
 
     const std::string operations[] = {"Connect", "Disconnect", "Receive", "Send"};
     const std::string ips[] = {
@@ -129,20 +122,20 @@ void generator(std::atomic<bool>& should_return, std::mutex& commands, std::atom
         if (log[0] == 'S' || log[0] == 'R') {
             log += " " + std::to_string(size_dist(gen)) + " Kb\n";
         } else {
-            log += " \n";
+            log += "\n";
         }
 
         {
+            std::unique_lock<std::mutex> lock(for_public);
             logger->info(log);
+            for_public.unlock();
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
-
         std::unique_lock<std::mutex> lock(commands);
         cv.wait(lock, [&is_working] {return is_working.load();});
         commands.unlock();
     }
-    delete logger;
 }
 
 void analyzer(std::atomic<bool>& should_return, std::mutex& commands, std::atomic<bool>& is_working, const int msg_id, std::condition_variable& cv, std::map<std::string, ip_stat>& data) {
@@ -167,7 +160,7 @@ void analyzer(std::atomic<bool>& should_return, std::mutex& commands, std::atomi
                 ip_from = msg_str.substr(from_pos + 13, msg_str.find(':', from_pos + 13) - (from_pos + 13));
                 ip_to = msg_str.substr(to_pos + 16, msg_str.find(':', to_pos + 16) - (to_pos + 16));
                 pck_sz = 0;
-                if (size_pos != static_cast<size_t>(res - 2)) {
+                if (operation == 'S' || operation == 'R') {
                     pck_sz = std::stoi(msg_str.substr(size_pos + 1, size_pos - msg_str.find(" Kb", size_pos)));
                 }
             }
@@ -208,7 +201,7 @@ void analyzer(std::atomic<bool>& should_return, std::mutex& commands, std::atomi
                 data[ip_to].data_snd += pck_sz;
             }
         }
-        sleep(1);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
         std::unique_lock<std::mutex> lock(commands);
         cv.wait(lock, [&is_working] {return is_working.load();});
         commands.unlock();
@@ -217,9 +210,16 @@ void analyzer(std::atomic<bool>& should_return, std::mutex& commands, std::atomi
 
 void generator_fork(const int num_of_threads, const int msg_id_gen, int msg_id_public, std::atomic<bool>& should_return, std::atomic<bool>& is_working, std::condition_variable& cv) {
     std::mutex com;
+    std::mutex for_public;
 
     std::cout << "Generator started (PID: " << getpid() << ")\n";
     std::vector<std::thread> threads(num_of_threads);
+    auto msg_stream = std::make_unique<MsgQueueOStream>(msg_id_public);
+    Logger *logger = LoggerBuilder().set_level(INFO)
+        .add_handler(std::move(msg_stream))
+        .add_handler(std::cout)
+        .add_handler(std::make_unique<std::ofstream>("test.txt"))
+        .make_object();
 
     while (true) {
         msgb msg{};
@@ -230,12 +230,14 @@ void generator_fork(const int num_of_threads, const int msg_id_gen, int msg_id_p
         }
         switch (msg.mtype) {
             case begin: {
+
                 for (int i = 0; i < num_of_threads; ++i) {
                     threads[i] = std::thread(generator,
                         std::ref(should_return),
                         std::ref(com),
+                        std::ref(for_public),
+                        logger,
                         std::ref(is_working),
-                        msg_id_public,
                         std::ref(cv));
                 }
                 break;
@@ -248,6 +250,7 @@ void generator_fork(const int num_of_threads, const int msg_id_gen, int msg_id_p
                 for (auto &th : threads) {
                     th.join();
                 }
+                delete logger;
                 return;
             }
             case stop: {
@@ -268,6 +271,7 @@ void generator_fork(const int num_of_threads, const int msg_id_gen, int msg_id_p
     for (auto &th : threads) {
         th.join();
     }
+    delete logger;
 }
 
 void analyzer_fork(const int num_of_threads, const int msg_id_an, int msg_id_public, std::atomic<bool>& should_return, std::atomic<bool>& is_working, std::condition_variable& cv) {
@@ -379,7 +383,8 @@ int main() {
 
     std::atomic<bool> is_working{true};
     std::atomic<bool> should_return{false};
-    int num_of_threads = 1;
+
+    int num_of_threads = 4;
 
     // const pid_t generator_pid = fork();
     // if (generator_pid == 0) {
@@ -441,7 +446,7 @@ int main() {
             if (msgsnd(msg_id_an, &message, strlen(message.mtext)+1, IPC_NOWAIT) == -1) {
                 perror("msgsnd to analyzer");
             }
-            sleep(1);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             break;
         }
         else if (command == "begin") {
