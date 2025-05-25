@@ -8,12 +8,11 @@
 #include <thread>
 #include <map>
 #include <cstring>  // Added for memset
-#include <stdexcept> // For better exception handling
-#include <bits/fcntl-linux.h>
-#include <sys/sem.h>
-#include <sys/shm.h>
+#include <filesystem>
+#include "semafor.h"
+#include "shmem.h"
 
-#define SEM_KEY 1234
+#define BUFSIZE 4096
 
 class Server {
     std::string ip;
@@ -43,7 +42,7 @@ public:
     }
 
     [[nodiscard]] bool userExists(const std::string& name) const {
-        return clients.contains(name);
+        return (clients.find(name) == clients.end() && !clients.empty());
     }
 
     bool userAdd(const std::string& name, const int cl) {
@@ -91,24 +90,7 @@ public:
         return std::make_pair(clientDescr, clientAddr);
     }
 
-    std::string receiveString(const int clientDescr) {
-        std::vector<char> ret = receivedBytes(clientDescr);
-        return {ret.begin(), ret.end()};
-    }
-
-    ssize_t sendBytes(const int clientSk, const void* buff, const size_t size) {
-        ssize_t sendedBytes = send(clientSk, &size, sizeof(size), 0);
-        if (sendedBytes == -1) {
-            throw std::runtime_error("Failed to send size");
-        }
-
-        if ((sendedBytes = send(clientSk, buff, size, 0)) == -1) {
-            throw std::runtime_error("Failed to send data");
-        }
-        return sendedBytes;
-    }
-
-    std::vector<char> receivedBytes(const int clientDescr) {
+    static std::vector<char> receiveBytes(const int clientDescr) {
         size_t len = 0;
         if (recv(clientDescr, &len, sizeof(len), 0) == -1) {
             throw std::runtime_error("Failed to receive size");
@@ -123,9 +105,45 @@ public:
         return buf;
     }
 
-    ssize_t sendString(const int clientSk, const std::string& str) {
+    static std::string receiveString(const int clientDescr) {
+        std::vector<char> ret = receiveBytes(clientDescr);
+        return {ret.begin(), ret.end()};
+    }
+
+    static void receiveFile(const int clientDescr, FILE* file, const std::string& sz) {
+        const size_t file_sz = stoi(sz);
+        for (size_t i = 0; i < file_sz; i++) {
+            std::string resp = receiveString(clientDescr);
+            fwrite(resp.c_str(), sizeof(char), resp.size(), file);
+        }
+    }
+
+    static ssize_t sendBytes(const int clientSk, const void* buff, const size_t size) {
+        ssize_t sendedBytes = send(clientSk, &size, sizeof(size), 0);
+        if (sendedBytes == -1) {
+            throw std::runtime_error("Failed to send size");
+        }
+
+        if ((sendedBytes = send(clientSk, buff, size, 0)) == -1) {
+            throw std::runtime_error("Failed to send data");
+        }
+        return sendedBytes;
+    }
+
+    static ssize_t sendString(const int clientSk, const std::string& str) {
         return sendBytes(clientSk, str.c_str(), str.length());
     }
+
+    static void sendFile(const int clientSk, FILE* file) {
+        char buf[BUFSIZE];
+        size_t bytes;
+        while ((bytes = fread(buf, sizeof(char), BUFSIZE, file)) > 0) {
+            if (sendBytes(clientSk, buf, bytes) == -1) {
+                throw std::runtime_error("Send failed");
+            }
+        }
+    }
+
 
     void stop() {
         if (sk != -1) {
@@ -143,7 +161,7 @@ public:
     }
 };
 
-void processClient(Server& server, int shmid, const std::pair<int, sockaddr_in> &pr) {
+void processClient(Server& server, const std::pair<int, sockaddr_in> &pr) {
     char clientIP[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(pr.second.sin_addr), clientIP, INET_ADDRSTRLEN);
     std::cout << "Client " << clientIP << " connected to the server" << std::endl;
@@ -159,31 +177,65 @@ void processClient(Server& server, int shmid, const std::pair<int, sockaddr_in> 
             }
 
             if (server.userExists(senderName)) {
-                server.sendString(pr.first, "NO");
+                Server::sendString(pr.first, "NO");
             } else {
                 server.userAdd(senderName, pr.first);
-                server.sendString(pr.first, "OK");
+                Server::sendString(pr.first, "OK");
                 break;
             }
         }
 
         // Messaging loop
         while (true) {
-            std::string command = server.receiveString(pr.first);
+            std::string command = Server::receiveString(pr.first);
+            std::string response;
+
             if (command == "compile") {
+                std::cout << "compilation started" << std::endl;
+                Server::sendString(pr.first, "OK"); //TODO: ответ сервера че надо написать
+                std::string size_text = Server::receiveString(pr.first); // размер файла в блоках
 
-                server.sendString(pr.first, "OK"); //TODO: ответ сервера че надо написать
+                std::string file_name = "tmp_file_" + std::to_string(pr.first) + ".cpp";
+                std::string comp_file_name = "tmp_file_" + std::to_string(pr.first);
+
+                FILE* file = fopen(file_name.c_str(), "wb");
+                if (file == nullptr) {
+                    throw std::runtime_error("Failed to open file for writing");
+                }
+
+                Server::receiveFile(pr.first, file, size_text);
+                fclose(file);
+
+                int res = system(("g++ " + file_name + " -o " + comp_file_name).c_str());
+                if (res != 0) {
+                    Server::sendString(pr.first, "NO");
+                    continue;
+                }
+                Server::sendString(pr.first, "OK");
+
+                auto file_sz = std::filesystem::file_size(comp_file_name);
+                file_sz = file_sz / BUFSIZE + ((file_sz % BUFSIZE) ? 1 : 0);
+                Server::sendString(pr.first, std::to_string(file_sz));
+
+                file = fopen(comp_file_name.c_str(), "rb");
+                if (file == nullptr) {
+                    throw std::runtime_error("Failed to open file for writing");
+                }
+                Server::sendFile(pr.first, file);
+                fclose(file);
+
             } else if (command == "game") {
+                Server::sendString(pr.first, "OK");
+                std::cout << "game started" << std::endl;
 
-                server.sendString(pr.first, "OK");
             } else if (command == "disconnect") {
+                std::cout << "disconnecting..." << std::endl;
+                Server::sendString(pr.first, "OK");
                 break;
                 //TODO: Проверить завершение сессии
             } else {
-                server.sendString(pr.first, "NO");
+                Server::sendString(pr.first, "NO");
             }
-
-            server.sendString(pr.first, " : ");
         }
     } catch (const std::exception& e) {
         std::cerr << "Error with client " << senderName << ": " << e.what() << std::endl;
@@ -197,41 +249,22 @@ void processClient(Server& server, int shmid, const std::pair<int, sockaddr_in> 
 }
 
 int main() {
-    const key_t key_ = ftok("tg", 'A');
-    int id = shmget(key_, 0, 666);
-    if (id == -1) {
-        std::cerr << "ERROR: shmget" << std::endl;
-        return 0;
-    }
+    // Shmemory chat(1234, 512);
+    // chat.connect();
+    //
+    // Semafor sem(2513, 2, CREATE);
 
-    int semid = semget(SEM_KEY, 2, IPC_CREAT | IPC_EXCL | 0666);
-    if (semid == -1) {
-        std::cerr << "ERROR: semget" << std::endl;
-        return 0;
-    }
-    semctl(semid, 0, SETALL, {0, 1});
 
-    const pid_t pid_comp = fork();
-    if (pid_comp == 0) {
-        execl("./child_process", "./child_process", std::to_string(key_), nullptr);
-        std::cerr << "ERROR: starting compilation server" << std::endl;
-        return 0;
-    }
-    if (pid_comp < 0) {
-        std::cerr << "ERROR: fork" << std::endl;
-        return 0;
-    }
-
-    const pid_t pid_game = fork();
-    if (pid_game == 0) {
-        execl("./child_process", "./child_process", std::to_string(key_), nullptr);
-        std::cerr << "ERROR: starting game server" << std::endl;
-        return 0;
-    }
-    if (pid_game < 0) {
-        std::cerr << "ERROR: fork" << std::endl;
-        return 0;
-    }
+    // const pid_t pid_game = fork();
+    // if (pid_game == 0) {
+    //     execl("./child_process", "./child_process", std::to_string(key_), nullptr);
+    //     std::cerr << "ERROR: starting game server" << std::endl;
+    //     return 0;
+    // }
+    // if (pid_game < 0) {
+    //     std::cerr << "ERROR: fork" << std::endl;
+    //     return 0;
+    // }
 
 
     try {
@@ -247,8 +280,8 @@ int main() {
                 threads.emplace_back(
                     processClient,
                     std::ref(server),
-                    id,
-                    clt);
+                    clt
+                    );
 
                 for (auto it = threads.begin(); it != threads.end(); ) {
                     if (it->joinable()) {

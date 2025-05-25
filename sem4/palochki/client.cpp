@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <exception>
@@ -7,7 +8,7 @@
 #include <vector>
 #include <filesystem>
 
-#define BUFSIZ 4096
+#define BUFSIZE 4096
 
 class Client {
     std::string ip;
@@ -56,6 +57,16 @@ public:
         return {buf.begin(), buf.end()};
     }
 
+    void sendBytes(const void* buff, const size_t size) const {
+        if (send(socket_fd, &size, sizeof(size), 0) == -1) {
+            throw std::runtime_error("Failed to send size");
+        }
+
+        if (send(socket_fd, buff, size, 0) == -1) {
+            throw std::runtime_error("Failed to send data");
+        }
+    }
+
     void sendString(const std::string& str) const {
         const size_t len = str.length();
         if (send(socket_fd, &len, sizeof(len), 0) == -1) {
@@ -65,9 +76,24 @@ public:
             throw std::runtime_error("Send failed");
         }
     }
+    void sendFile(FILE* file) const {
+        char buf[BUFSIZE];
+        size_t bytes;
+        while ((bytes = fread(buf, sizeof(char), BUFSIZE, file)) > 0) {
+            sendBytes(buf, bytes);
+        }
+    }
 
-    void registerName(const std::string& name) {
-        {
+    void rcvFile(FILE* file, const std::string& sz) const {
+        const size_t file_sz = stoi(sz);
+        for (size_t i = 0; i < file_sz; i++) {
+            std::string resp = receiveString();
+            fwrite(resp.c_str(), sizeof(char), resp.size(), file);
+        }
+    }
+
+    void registerName(const std::string& name) const {
+        while (true) {
             sendString(name);
             std::string response = receiveString();
             if (response == "OK") {
@@ -76,21 +102,23 @@ public:
                 std::cout << "Name already taken. Enter another name: ";
                 std::string new_name;
                 std::getline(std::cin, new_name);
-                registerName(new_name);
+                continue;
             }
+            break;
         }
     }
 
-    void run() {
+    void run() const {
         std::cout << "Enter your name: ";
         std::string name;
         std::getline(std::cin, name);
         registerName(name);
 
-        std::cout << "Available commands:\ncompile\ngame\ndisconnect\nEnter command:" << std::endl;
+        std::cout << "Available commands:\ncompile\ngame\ndisconnect" << std::endl;
         std::string message, response;
 
         while (true) {
+            std::cout << "Enter command:" << std::endl;
             std::getline(std::cin, message);
             sendString(message);
             response = receiveString();
@@ -102,48 +130,64 @@ public:
             if (message == "compile") {
                 std::cout << "Enter path to file: ";
                 std::string file_path;
-                std::getline(std::cin, file_path);
-                if (!std::filesystem::exists(file_path)) {
-                    throw std::runtime_error("No such file or directory");
-                }
-                auto file_sz = std::filesystem::file_size(file_path);
-                if (send(socket_fd, &file_sz, sizeof(file_sz), 0) == -1) {
-                    throw std::runtime_error("Send failed");
-                }
 
-                char buf[BUFSIZ];
-                FILE* file = fopen(file_path.c_str(), "rb");
-                if (file == nullptr) {
-                    throw std::runtime_error("File not found");
-                }
-                size_t bytes;
-                while ((bytes = fread(buf, sizeof(char), BUFSIZ, file)) > 0) {
-                    if (send(socket_fd, buf, bytes, 0) == -1) {
-                        throw std::runtime_error("Send failed");
+
+                FILE* file;
+                while (true) {
+                    std::getline(std::cin, file_path);
+                    if (!std::filesystem::exists(file_path)) {
+                        std::cout << "No such file or directory" << std::endl;
+                        continue;
                     }
+
+                    auto file_sz = std::filesystem::file_size(file_path);
+                    file_sz = file_sz / BUFSIZE + ((file_sz % BUFSIZE) ? 1 : 0);
+                    sendString(std::to_string(file_sz));
+
+                    file = fopen(file_path.c_str(), "rb");
+                    if (file == nullptr) {
+                        std::cout << "File not found. Try again:" << std::endl;
+                        continue;
+                    }
+                    break;
                 }
+                sendFile(file);
+                fclose(file);
+
                 response = receiveString();
                 if (response == "NO") {
-                    throw std::runtime_error("Dead file");
+                    std::cout << "File cant be compilated." << std::endl;
+                    continue;
                 }
+
+                std::cout << "Enter name of compiled file:" << std::endl;
+
+                while (true){
+                    std::getline(std::cin, file_path);
+                    file = fopen(file_path.c_str(), "wb");
+                    if (file == nullptr) {
+                        std::cout << "File not found. Try again:" << std::endl;
+                        continue;
+                    }
+                    break;
+                }
+                std::string size_text = receiveString();
+                rcvFile(file, size_text);
+                fclose(file);
+
+                std::string cmd = "chmod +x " + file_path;
+                system(cmd.c_str());
+
                 //TODO: получить скомпилированный файл
             } else if (message == "game") {
+                std::cout << "game started" << std::endl;
 
             } else if (message == "disconnect") {
+                std::cout << "disconnecting..." << std::endl;
                 break;
             } else {
-
+                std::cout << "Something went wrong." << std::endl;
             }
-
-        }
-        // Wait for any incoming messages
-        try {
-            std::string incoming = receiveString();
-            if (!incoming.empty()) {
-                std::cout << "\nNew message: " << incoming << std::endl;
-            }
-        } catch (...) {
-            // No messages or connection error
         }
     }
 
