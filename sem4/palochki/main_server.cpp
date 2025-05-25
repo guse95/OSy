@@ -9,6 +9,11 @@
 #include <map>
 #include <cstring>  // Added for memset
 #include <stdexcept> // For better exception handling
+#include <bits/fcntl-linux.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
+
+#define SEM_KEY 1234
 
 class Server {
     std::string ip;
@@ -38,7 +43,7 @@ public:
     }
 
     [[nodiscard]] bool userExists(const std::string& name) const {
-        return clients.find(name) != clients.end();
+        return clients.contains(name);
     }
 
     bool userAdd(const std::string& name, const int cl) {
@@ -138,7 +143,7 @@ public:
     }
 };
 
-void processClient(Server& server, std::pair<int, sockaddr_in> pr) {
+void processClient(Server& server, int shmid, const std::pair<int, sockaddr_in> &pr) {
     char clientIP[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(pr.second.sin_addr), clientIP, INET_ADDRSTRLEN);
     std::cout << "Client " << clientIP << " connected to the server" << std::endl;
@@ -164,20 +169,21 @@ void processClient(Server& server, std::pair<int, sockaddr_in> pr) {
 
         // Messaging loop
         while (true) {
-            std::string receiverName = server.receiveString(pr.first);
-            if (receiverName.empty() || receiverName == "exit") {
+            std::string command = server.receiveString(pr.first);
+            if (command == "compile") {
+
+                server.sendString(pr.first, "OK"); //TODO: ответ сервера че надо написать
+            } else if (command == "game") {
+
+                server.sendString(pr.first, "OK");
+            } else if (command == "disconnect") {
                 break;
-            }
-
-            if (!server.userExists(receiverName)) {
+                //TODO: Проверить завершение сессии
+            } else {
                 server.sendString(pr.first, "NO");
-                continue;
             }
 
-            server.sendString(pr.first, "OK");
-            int receiverSocket = server.userGetSocket(receiverName);
-            std::string text = server.receiveString(pr.first);
-            server.sendString(receiverSocket, senderName + " : " + text);
+            server.sendString(pr.first, " : ");
         }
     } catch (const std::exception& e) {
         std::cerr << "Error with client " << senderName << ": " << e.what() << std::endl;
@@ -191,6 +197,43 @@ void processClient(Server& server, std::pair<int, sockaddr_in> pr) {
 }
 
 int main() {
+    const key_t key_ = ftok("tg", 'A');
+    int id = shmget(key_, 0, 666);
+    if (id == -1) {
+        std::cerr << "ERROR: shmget" << std::endl;
+        return 0;
+    }
+
+    int semid = semget(SEM_KEY, 2, IPC_CREAT | IPC_EXCL | 0666);
+    if (semid == -1) {
+        std::cerr << "ERROR: semget" << std::endl;
+        return 0;
+    }
+    semctl(semid, 0, SETALL, {0, 1});
+
+    const pid_t pid_comp = fork();
+    if (pid_comp == 0) {
+        execl("./child_process", "./child_process", std::to_string(key_), nullptr);
+        std::cerr << "ERROR: starting compilation server" << std::endl;
+        return 0;
+    }
+    if (pid_comp < 0) {
+        std::cerr << "ERROR: fork" << std::endl;
+        return 0;
+    }
+
+    const pid_t pid_game = fork();
+    if (pid_game == 0) {
+        execl("./child_process", "./child_process", std::to_string(key_), nullptr);
+        std::cerr << "ERROR: starting game server" << std::endl;
+        return 0;
+    }
+    if (pid_game < 0) {
+        std::cerr << "ERROR: fork" << std::endl;
+        return 0;
+    }
+
+
     try {
         Server server{};
         server.bind();
@@ -201,9 +244,12 @@ int main() {
         while (true) {
             try {
                 auto clt = server.accept();
-                threads.emplace_back(processClient, std::ref(server), clt);
+                threads.emplace_back(
+                    processClient,
+                    std::ref(server),
+                    id,
+                    clt);
 
-                // Clean up finished threads
                 for (auto it = threads.begin(); it != threads.end(); ) {
                     if (it->joinable()) {
                         it->join();
@@ -218,6 +264,6 @@ int main() {
         }
     } catch (const std::exception& e) {
         std::cerr << "Server error: " << e.what() << std::endl;
-        return 1;
+        return 0;
     }
-}
+} // /mnt/c/Users/Кря/CLionProjects/OSy/sem4/palochki
