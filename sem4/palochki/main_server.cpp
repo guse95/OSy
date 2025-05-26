@@ -9,6 +9,8 @@
 #include <map>
 #include <cstring>  // Added for memset
 #include <filesystem>
+
+#include "Process_compiler.h"
 #include "semafor.h"
 #include "shmem.h"
 
@@ -143,7 +145,9 @@ public:
             }
         }
     }
-
+    [[nodiscard]] bool socket_available() const {
+        return sk != -1;
+    }
 
     void stop() {
         if (sk != -1) {
@@ -152,6 +156,10 @@ public:
         } else {
             throw std::runtime_error("Socket already closed");
         }
+    }
+
+    void shutdown() const {
+        ::shutdown(sk, SHUT_RDWR);
     }
 
     virtual ~Server() {
@@ -191,12 +199,17 @@ void processClient(Server& server, const std::pair<int, sockaddr_in> &pr) {
             std::string response;
 
             if (command == "compile") {
+                Shmemory chat(1234, 512, CONNECT);
+                chat.connect();
+
+                Semafor sem(2513, 2, CONNECT);
+
                 std::cout << "compilation started" << std::endl;
-                Server::sendString(pr.first, "OK"); //TODO: ответ сервера че надо написать
-                std::string size_text = Server::receiveString(pr.first); // размер файла в блоках
+                Server::sendString(pr.first, "OK");
+                std::string size_text = Server::receiveString(pr.first);
 
                 std::string file_name = "tmp_file_" + std::to_string(pr.first) + ".cpp";
-                std::string comp_file_name = "tmp_file_" + std::to_string(pr.first);
+                std::string comp_file_name;
 
                 FILE* file = fopen(file_name.c_str(), "wb");
                 if (file == nullptr) {
@@ -206,9 +219,19 @@ void processClient(Server& server, const std::pair<int, sockaddr_in> &pr) {
                 Server::receiveFile(pr.first, file, size_text);
                 fclose(file);
 
-                int res = system(("g++ " + file_name + " -o " + comp_file_name).c_str());
-                if (res != 0) {
+                sem.wait_for(0, 1);
+                sem.minus(1);
+                chat.write(file_name);
+                std::cout << "file_name: " << file_name << std::endl;
+                sem.plus(0);
+
+                sem.wait_for(1, 1);
+                comp_file_name = chat.read();
+
+                std::cout << "comp_file_name: " << comp_file_name << std::endl;
+                if (comp_file_name == "fail") {
                     Server::sendString(pr.first, "NO");
+                    sem.minus(0);
                     continue;
                 }
                 Server::sendString(pr.first, "OK");
@@ -223,6 +246,10 @@ void processClient(Server& server, const std::pair<int, sockaddr_in> &pr) {
                 }
                 Server::sendFile(pr.first, file);
                 fclose(file);
+                std::remove(comp_file_name.c_str());
+                std::remove(file_name.c_str());
+
+                sem.minus(0);
 
             } else if (command == "game") {
                 Server::sendString(pr.first, "OK");
@@ -232,7 +259,6 @@ void processClient(Server& server, const std::pair<int, sockaddr_in> &pr) {
                 std::cout << "disconnecting..." << std::endl;
                 Server::sendString(pr.first, "OK");
                 break;
-                //TODO: Проверить завершение сессии
             } else {
                 Server::sendString(pr.first, "NO");
             }
@@ -248,11 +274,20 @@ void processClient(Server& server, const std::pair<int, sockaddr_in> &pr) {
     std::cout << "Client " << senderName << " disconnected" << std::endl;
 }
 
+void adminsTread(Server &server) {
+    std::string msg;
+    while (true) {
+        std::getline(std::cin, msg);
+        if (msg == "exit") {
+            server.shutdown();
+            server.stop();
+            std::cout << "Stopping server by command: exit" << std::endl;
+            break;
+        }
+    }
+}
+
 int main() {
-    // Shmemory chat(1234, 512);
-    // chat.connect();
-    //
-    // Semafor sem(2513, 2, CREATE);
 
 
     // const pid_t pid_game = fork();
@@ -265,16 +300,27 @@ int main() {
     //     std::cerr << "ERROR: fork" << std::endl;
     //     return 0;
     // }
+    Shmemory chat(1234, 512, CREATE);
+    chat.connect();
 
+    Semafor sem(2513, 2, CREATE);
+    sem.assign({0, 1});
+
+    Server server{};
+    server.bind();
+    server.listen();
+
+    ProcessСompiler compiler("compiler");
+    compiler.start();
 
     try {
-        Server server{};
-        server.bind();
-        server.listen();
+        std::cout << "Server started" << std::endl;
 
+
+        std::thread adminCmd(adminsTread, std::ref(server));
         std::vector<std::thread> threads;
 
-        while (true) {
+        while (server.socket_available()) {
             try {
                 auto clt = server.accept();
                 threads.emplace_back(
@@ -292,11 +338,25 @@ int main() {
                     }
                 }
             } catch (const std::exception& e) {
-                std::cerr << "Accept error: " << e.what() << std::endl;
+                if (server.socket_available()) {
+                    std::cout << "Accept error: " << e.what() << std::endl;
+                } else {
+                    std::cout << "Server socket closed, stopping accept loop..." << std::endl;
+                }
             }
         }
+
+        if (adminCmd.joinable()) {
+            adminCmd.join();
+        }
+
+
+
     } catch (const std::exception& e) {
-        std::cerr << "Server error: " << e.what() << std::endl;
-        return 0;
+        std::cout << "Server error: " << e.what() << std::endl;
     }
+    compiler.stop();
+
+    chat.detach(true);
+    sem.detach(true);
 } // /mnt/c/Users/Кря/CLionProjects/OSy/sem4/palochki
